@@ -2,11 +2,29 @@
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEV_SECRET = "dev-secret-change-me"
+
+
+def normalize_database_url(url: str) -> str:
+    """Accept a Postgres URL as hosts print it (Neon, Supabase, Heroku: postgres://...?sslmode=require) and turn
+    it into the SQLAlchemy asyncpg form. asyncpg takes `ssl`, not libpq's `sslmode`, and has no `channel_binding`;
+    the checkpointer turns `ssl` back into `sslmode` for psycopg (see agents/checkpoint.py)."""
+    scheme, _, rest = url.partition("://")
+    if scheme not in ("postgres", "postgresql", "postgresql+asyncpg", "postgresql+psycopg"):
+        return url
+    parts = urlsplit("postgresql+asyncpg://" + rest)
+    query = []
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        if key == "sslmode":
+            key = "ssl"
+        if key != "channel_binding":
+            query.append((key, value))
+    return urlunsplit(parts._replace(query=urlencode(query)))
 
 
 class Settings(BaseSettings):
@@ -29,7 +47,14 @@ class Settings(BaseSettings):
 
     # --- Database ---
     # SQLite works out of the box. For Postgres: postgresql+asyncpg://user:pass@host:5432/brandbot
+    # (a host's postgres://...?sslmode=require string works as pasted).
     database_url: str = "sqlite+aiosqlite:///./brandbot.db"
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_database_url(cls, v: str) -> str:
+        return normalize_database_url(v)
+
     db_auto_create: bool = Field(
         default=True, description="Create tables on startup (dev). Use `alembic upgrade head` in production."
     )

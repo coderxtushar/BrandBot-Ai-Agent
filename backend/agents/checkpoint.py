@@ -6,6 +6,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
@@ -26,8 +27,10 @@ def make_serde() -> JsonPlusSerializer:
 
 
 def _postgres_dsn(url: str) -> str:
-    """SQLAlchemy URL (postgresql+asyncpg://...) -> libpq DSN (postgresql://...)."""
-    return "postgresql://" + url.split("://", 1)[1]
+    """SQLAlchemy URL (postgresql+asyncpg://...?ssl=require) -> libpq DSN (postgresql://...?sslmode=require)."""
+    parts = urlsplit("postgresql://" + url.split("://", 1)[1])
+    query = [("sslmode" if k == "ssl" else k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)]
+    return urlunsplit(parts._replace(query=urlencode(query)))
 
 
 @asynccontextmanager

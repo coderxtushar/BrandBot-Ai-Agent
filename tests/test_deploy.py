@@ -269,3 +269,32 @@ def test_tracing_exports_langsmith_env(monkeypatch):
     on = Settings(_env_file=None, langsmith_tracing=True, langsmith_api_key="lsv2-key", langsmith_project="bb-prod")
     assert configure_tracing(on) is True
     assert os.environ["LANGSMITH_TRACING"] == "true" and os.environ["LANGSMITH_PROJECT"] == "bb-prod"
+
+
+# --- database urls ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "pasted, sqlalchemy, libpq",
+    [
+        (  # Neon, copied from the console
+            "postgresql://u:p%40ss@ep-x.ap-south-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+            "postgresql+asyncpg://u:p%40ss@ep-x.ap-south-1.aws.neon.tech/neondb?ssl=require",
+            "postgresql://u:p%40ss@ep-x.ap-south-1.aws.neon.tech/neondb?sslmode=require",
+        ),
+        ("postgres://u:p@db:5432/bb", "postgresql+asyncpg://u:p@db:5432/bb", "postgresql://u:p@db:5432/bb"),
+        (
+            "postgresql+asyncpg://u:p@/bb?host=/cloudsql/p:r:i",
+            "postgresql+asyncpg://u:p@/bb?host=%2Fcloudsql%2Fp%3Ar%3Ai",
+            "postgresql://u:p@/bb?host=%2Fcloudsql%2Fp%3Ar%3Ai",
+        ),
+        ("sqlite+aiosqlite:///./brandbot.db", "sqlite+aiosqlite:///./brandbot.db", None),
+    ],
+)
+def test_database_urls_work_as_hosts_print_them(pasted, sqlalchemy, libpq):
+    from backend.agents.checkpoint import _postgres_dsn
+
+    url = Settings(_env_file=None, database_url=pasted).database_url
+    assert url == sqlalchemy
+    if libpq:
+        assert _postgres_dsn(url) == libpq
