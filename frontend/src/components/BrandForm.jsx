@@ -9,7 +9,18 @@ const FIELDS = [
   { name: 'content_pillars', label: 'Content pillars', rows: 3, placeholder: 'e.g. Shipping AI features, Python tips, career growth for engineers' },
 ];
 
-export default function BrandForm({ value, onChange, onSubmit, isRunning, hasProfile, reuseProfile, onReuseProfile }) {
+const ago = (iso) => {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  if (mins < 60 * 24) return `${Math.round(mins / 60)} h ago`;
+  return new Date(iso).toLocaleDateString();
+};
+
+export default function BrandForm({
+  value, onChange, onSubmit, isRunning, isNew, profileUpdatedAt, reuseProfile, onReuseProfile,
+}) {
+  const hasProfile = Boolean(profileUpdatedAt);
   const [showVoice, setShowVoice] = useState(Boolean(value.brand.past_posts));
   const setBrand = (name, v) => onChange({ ...value, brand: { ...value.brand, [name]: v } });
   const togglePlatform = (id) => {
@@ -17,7 +28,10 @@ export default function BrandForm({ value, onChange, onSubmit, isRunning, hasPro
     onChange({ ...value, platforms: has ? value.platforms.filter((p) => p !== id) : [...value.platforms, id] });
   };
 
-  const ready = value.platforms.length > 0 && FIELDS.every((f) => value.brand[f.name].trim().length >= 3);
+  const ready =
+    value.name.trim().length > 0 &&
+    value.platforms.length > 0 &&
+    FIELDS.every((f) => value.brand[f.name].trim().length >= 3);
 
   return (
     <form
@@ -28,8 +42,21 @@ export default function BrandForm({ value, onChange, onSubmit, isRunning, hasPro
       }}
     >
       <div>
-        <h2 className="text-base font-semibold">Your brand</h2>
-        <p className="hint">Saved in this browser so you only type it once.</p>
+        <h2 className="text-base font-semibold">{isNew ? 'New brand' : 'Your brand'}</h2>
+        <p className="hint">Saved to your account when you generate, so you only type it once.</p>
+      </div>
+
+      <div>
+        <label htmlFor="brand_name" className="label">Brand name</label>
+        <input
+          id="brand_name"
+          className="field"
+          placeholder="e.g. My personal brand"
+          value={value.name}
+          onChange={(e) => onChange({ ...value, name: e.target.value })}
+          required
+          maxLength={120}
+        />
       </div>
 
       {FIELDS.map((f) => (
@@ -127,7 +154,7 @@ export default function BrandForm({ value, onChange, onSubmit, isRunning, hasPro
               checked={reuseProfile}
               onChange={(e) => onReuseProfile(e.target.checked)}
             />
-            Reuse saved brand profile
+            Reuse saved profile <span className="text-muted">({ago(profileUpdatedAt)})</span>
           </label>
         )}
       </div>
