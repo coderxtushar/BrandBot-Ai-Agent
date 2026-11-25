@@ -28,6 +28,9 @@ platform subgraph (runs in parallel for each platform):
 - **Visuals**: an art-director step turns any draft into an image brief using your brand's visual style, and Gemini generates it at the platform's aspect ratio (1:1 LinkedIn, 16:9 X and Medium, 4:5 Threads and Instagram, 9:16 Shorts). Images show up in the previews (carousel cover, article header, Shorts thumbnail).
 - **Accounts**: email + password sign-in (argon2 hashes, HTTP-only session cookies stored hashed, login rate limit, CSRF origin check). Every brand, run, draft and image belongs to one user.
 - **Publishing**: connect LinkedIn, X, Threads and Instagram with OAuth (PKCE for X; tokens encrypted at rest and refreshed automatically), then publish a draft now or schedule it. A background scheduler claims each due post atomically, so a post never goes out twice, and retries temporary failures.
+- **Analytics**: stats for published posts are read back from X, Threads and Instagram every few hours and kept as history. LinkedIn doesn't share personal post stats with apps, so you can type results in, and mark posts you published yourself (e.g. Medium, Shorts) so they count too. The analytics page shows totals vs the previous period, a daily trend, platform and topic comparisons, a day × time heatmap and your top posts.
+- **Learning loop**: new runs show the writers this brand's best-performing posts per platform, and tell the planner which topics work best. The Publish dialog suggests your best posting time from your own history.
+- **Calendar**: a month view of everything scheduled and published; drag a post to another day to reschedule it.
 - **Editing loop**: approve/reject each draft, edit it in a form built from the platform's own format, or ask the AI to rewrite it ("shorter", "punchier", or your own words). Rewrites go through the same write → review loop. Every change is a version you can restore.
 
 ```
@@ -96,9 +99,13 @@ A test fails if the models and migrations drift apart.
 | GET | `/connections/{platform}/callback` | OAuth redirect target |
 | DELETE | `/connections/{id}` | Disconnect (cancels its scheduled posts) |
 | POST | `/drafts/{id}/publications` | Publish now, or schedule with `scheduled_at` |
-| GET | `/publications` | Your posts (`status` filter) |
+| GET | `/publications` | Your posts (`status`, `start` / `end` filters) |
 | PATCH | `/publications/{id}` | Reschedule |
 | POST | `/publications/{id}/cancel`, `/publications/{id}/retry` | Cancel a scheduled post, retry a failed one |
+| GET | `/analytics/posts` | Published posts with their latest stats (`days`, `brand_id`, `platform`) |
+| POST | `/analytics/refresh` | Read fresh stats for your recent posts now |
+| GET / POST | `/publications/{id}/metrics` | Stats history, or type in results by hand |
+| POST | `/drafts/{id}/manual-publication` | "I posted this myself" (link + date), so its results can be tracked |
 | GET | `/platforms` | Supported platforms |
 | POST | `/brands` | Create a brand (name + input) |
 | GET | `/brands` | List brands |
@@ -139,7 +146,7 @@ cd frontend && npm run lint && npm run build
 - [x] **6. Editing loop**: approve/reject, structured editor, AI rewrites and fresh drafts, version history, plan review via checkpointed `interrupt()`
 - [x] **7. Visuals + new UI**: art-directed Gemini images for every platform; web app rebuilt in Next.js with Framer Motion
 - [x] **8. Accounts and publishing**: sign-in, OAuth for LinkedIn / X / Threads / Instagram, publish now or on a schedule
-- [ ] **9. Content calendar and analytics**: schedule view, metrics pulled back in, best performers feed future runs
+- [x] **9. Calendar and analytics**: drag-to-reschedule calendar, stats from the platforms or typed in, analytics dashboard, best posts and topics feed future runs
 - [ ] **10. Deploy**: Docker, Cloud Run + Vercel, LangSmith tracing, rate limits
 
 Medium no longer issues API tokens for new integrations, so Medium stays "export Markdown and import".
