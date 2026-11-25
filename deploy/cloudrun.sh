@@ -24,7 +24,9 @@ if [[ -f "$SECRETS_FILE" ]]; then
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ "$line" =~ ^[[:space:]]*([A-Z_][A-Z0-9_]*)=(.*)$ ]] || continue
     key="${BASH_REMATCH[1]}" value="${BASH_REMATCH[2]}"
-    value="${value%$'\r'}"; value="${value#[\"\']}"; value="${value%[\"\']}"
+    value="${value%$'\r'}"
+    value="${value#"${value%%[![:space:]]*}"}"; value="${value%"${value##*[![:space:]]}"}"  # trim spaces
+    value="${value#[\"\']}"; value="${value%[\"\']}"
     [[ -z "${!key:-}" ]] && export "$key=$value"  # variables already set in the shell win
   done <"$SECRETS_FILE"
 fi
@@ -38,6 +40,9 @@ BUCKET="${BUCKET:-${PROJECT_ID}-brandbot-media}"
 SA_NAME="${SA_NAME:-brandbot-api}"
 MAX_INSTANCES="${MAX_INSTANCES:-5}"
 LANGSMITH_PROJECT="${LANGSMITH_PROJECT:-brand-bot}"
+# How often Cloud Scheduler publishes due posts and refreshes stats. Each tick wakes the database, so on a
+# free serverless plan (Neon: 100 compute hours/month, sleeps after 5 idle minutes) use "*/15 * * * *".
+TICK_SCHEDULE="${TICK_SCHEDULE:-* * * * *}"
 WEB_URL="${WEB_URL%/}"
 # The browser reaches the API through the web app (/api), so OAuth callbacks and image URLs use that address.
 API_PUBLIC_URL="${API_PUBLIC_URL:-${WEB_URL}/api}"
@@ -125,16 +130,16 @@ THREADS_APP_ID: "${THREADS_APP_ID:-}"
 INSTAGRAM_APP_ID: "${INSTAGRAM_APP_ID:-}"
 EOF
 # --timeout 3600: AI runs stream for minutes. --concurrency 40: requests mostly wait on Gemini, so one
-# instance serves many. CPU is only billed during requests; the scheduler below wakes it every minute.
+# instance serves many. CPU is only billed during requests; the scheduler below wakes it on TICK_SCHEDULE.
 gc run deploy "$SERVICE" --region "$REGION" --image "$IMAGE" --service-account "$SA" \
   --allow-unauthenticated --port 8080 --timeout 3600 --concurrency 40 --cpu 1 --memory 1Gi \
   --min-instances 0 --max-instances "$MAX_INSTANCES" --cpu-boost \
   --env-vars-file "$ENV_FILE" --set-secrets "$SECRETS" ${SQL_FLAGS[@]+"${SQL_FLAGS[@]}"}
 API_URL="$(gc run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"
 
-step "Cloud Scheduler: POST ${API_URL}/internal/tick every minute"
+step "Cloud Scheduler: POST ${API_URL}/internal/tick on '${TICK_SCHEDULE}'"
 CRON="$(gc secrets versions access latest --secret brandbot-cron-secret)"
-JOB_FLAGS=(--location "$REGION" --schedule "* * * * *" --uri "${API_URL}/internal/tick" --http-method POST
+JOB_FLAGS=(--location "$REGION" --schedule "$TICK_SCHEDULE" --uri "${API_URL}/internal/tick" --http-method POST
   --attempt-deadline 300s)
 if gc scheduler jobs describe brandbot-tick --location "$REGION" >/dev/null 2>&1; then
   gc scheduler jobs update http brandbot-tick "${JOB_FLAGS[@]}" --update-headers "Authorization=Bearer ${CRON}"
