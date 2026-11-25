@@ -12,3 +12,5 @@ __pycache__/
 *.db-journal
 media/
 /deploy/*.env
+.vercel
+.env.local
