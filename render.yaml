@@ -1,0 +1,53 @@
+# Render Blueprint: the API on Render's free plan (no card needed). The web app stays on Vercel, data on Neon.
+# Dashboard > New > Blueprint > pick this repo. Render asks for the `sync: false` values once, at creation.
+#
+# Free plan trade-offs: the service sleeps after 15 minutes without requests (the next one waits about a
+# minute), the disk is wiped on every restart (so images live in Postgres: MEDIA_BACKEND=db), and there is
+# no pre-deploy step (so migrations run when the container starts) and no cron (see .github/workflows/tick.yml).
+services:
+  - type: web
+    name: brandbot-api
+    runtime: docker
+    plan: free
+    region: singapore          # next to the Neon database (aws ap-southeast-1); can't be changed later
+    healthCheckPath: /health   # not /ready: that queries the database and would keep Neon awake
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - backend/**
+        - Dockerfile
+        - requirements.txt
+        - alembic.ini
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_FORMAT
+        value: text
+      - key: MIGRATE_ON_START
+        value: "true"
+      - key: DB_AUTO_CREATE
+        value: "false"
+      - key: MEDIA_BACKEND
+        value: db
+      - key: SCHEDULER_ENABLED   # the tick workflow publishes due posts instead
+        value: "false"
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: WEB_URL
+        value: https://brandbot-studio.vercel.app
+      - key: API_PUBLIC_URL      # the browser reaches the API through the web app
+        value: https://brandbot-studio.vercel.app/api
+      - key: CORS_ORIGINS
+        value: '["https://brandbot-studio.vercel.app"]'
+      - key: TRUSTED_PROXY_HOPS  # measured with GET /internal/client-ip through the web app
+        value: "0"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL        # Neon direct connection string, pasted as is
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: CRON_SECRET         # same value as the BRANDBOT_CRON_SECRET GitHub secret
+        sync: false
