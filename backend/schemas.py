@@ -68,6 +68,10 @@ class BrandProfile(BaseModel):
     voice: VoiceGuide
     pillars: list[str] = Field(description="3-5 content pillars, each a short phrase")
     hashtags: list[str] = Field(description="10-15 relevant hashtags without the # sign")
+    visual_style: str = Field(
+        default="",
+        description="Visual identity for images: palette, mood, imagery style (e.g. 'warm editorial photos, navy and amber')",
+    )
 
 
 class SearchQuery(BaseModel):
@@ -232,11 +236,39 @@ class PlanDecision(BaseModel):
     guidance: str = Field(default="", max_length=1000, description="Extra direction for the writers")
 
 
+ImageStyle = Literal["photo", "illustration", "3d", "minimal"]
+
+
+class ImagePrompt(BaseModel):
+    """What the art director hands to the image model."""
+
+    prompt: str = Field(description="A vivid, specific image prompt. Never ask for text, letters or logos in the image.")
+    alt_text: str = Field(description="Accessible description of the image, max ~150 characters")
+
+
+class ImageRequest(BaseModel):
+    idea: str = Field(default="", max_length=500, description="Optional: your own idea for the image")
+    style: ImageStyle | None = Field(default=None, description="Optional visual style preset")
+
+
+class DraftImageOut(BaseModel):
+    id: str
+    draft_id: str
+    url: str = Field(description="Path to fetch the image from this API, e.g. /media/images/<id>.png")
+    prompt: str
+    alt_text: str
+    aspect_ratio: str
+    style: str | None
+    model: str
+    created_at: datetime
+
+
 class DraftRef(BaseModel):
     id: str
     status: DraftStatus
     review: Review | None = Field(default=None, description="Review of this draft alone, after a rewrite")
     lint: list[str] = Field(default_factory=list, description="Hard-rule problems in the current content")
+    images: list[DraftImageOut] = Field(default_factory=list, description="Generated images, newest first")
 
 
 class StoredPlatformResult(PlatformResult):
