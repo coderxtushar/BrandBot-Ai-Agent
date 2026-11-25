@@ -43,7 +43,7 @@ def test_missing_keys_give_503(monkeypatch, tmp_path):
     from backend.agents.checkpoint import open_checkpointer
     from backend.api import deps
     from backend.db.session import Database, get_database
-    from tests.conftest import memory_checkpointer
+    from tests.conftest import memory_checkpointer, sign_up
 
     def boom():
         raise RuntimeError("GOOGLE_API_KEY is not set.")
@@ -53,6 +53,7 @@ def test_missing_keys_give_503(monkeypatch, tmp_path):
     app.dependency_overrides[open_checkpointer] = memory_checkpointer
     try:
         with TestClient(app) as c:
+            sign_up(c)
             assert c.post("/runs", json=PAYLOAD).status_code == 503
     finally:
         app.dependency_overrides.clear()

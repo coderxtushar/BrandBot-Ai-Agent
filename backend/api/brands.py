@@ -9,10 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from backend.agents.graph import initial_state
-from backend.api.deps import durable_graph_dep, storage_dep
+from backend.api.deps import current_user, durable_graph_dep, storage_dep
+from backend.db import accounts as acc
 from backend.api.streaming import graph_events, sse
 from backend.db import repo
-from backend.db.models import Brand, Run
+from backend.db.models import Brand, Run, User
 from backend.db.session import Database, get_database, get_session
 from backend.schemas import (
     BrandCreate,
@@ -31,16 +32,19 @@ router = APIRouter(tags=["brands & history"])
 log = logging.getLogger("brandbot")
 
 
-async def _brand_or_404(brand_id: str, s: AsyncSession = Depends(get_session)) -> Brand:
+async def _brand_or_404(
+    brand_id: str, s: AsyncSession = Depends(get_session), user: User = Depends(current_user)
+) -> Brand:
     brand = await repo.get_brand(s, brand_id)
-    if brand is None:
+    if brand is None or brand.user_id != user.id:  # someone else's brand looks exactly like a missing one
         raise HTTPException(status_code=404, detail="Brand not found")
     return brand
 
 
-async def _run_or_404(run_id: str, s: AsyncSession = Depends(get_session)) -> Run:
+async def _run_or_404(run_id: str, s: AsyncSession = Depends(get_session), user: User = Depends(current_user)) -> Run:
     run = await repo.get_run(s, run_id)
-    if run is None:
+    owner = await s.get(Brand, run.brand_id) if run else None
+    if run is None or owner is None or owner.user_id != user.id:
         raise HTTPException(status_code=404, detail="Run not found")
     return run
 
@@ -51,13 +55,13 @@ async def _run_or_404(run_id: str, s: AsyncSession = Depends(get_session)) -> Ru
 
 
 @router.post("/brands", response_model=BrandOut, status_code=201)
-async def create_brand(data: BrandCreate, s: AsyncSession = Depends(get_session)):
-    return repo.brand_out(await repo.create_brand(s, data))
+async def create_brand(data: BrandCreate, s: AsyncSession = Depends(get_session), user: User = Depends(current_user)):
+    return repo.brand_out(await repo.create_brand(s, data, user.id))
 
 
 @router.get("/brands", response_model=list[BrandOut])
-async def list_brands(s: AsyncSession = Depends(get_session)):
-    return [repo.brand_out(b) for b in await repo.list_brands(s)]
+async def list_brands(s: AsyncSession = Depends(get_session), user: User = Depends(current_user)):
+    return [repo.brand_out(b) for b in await repo.list_brands(s, user.id)]
 
 
 @router.get("/brands/{brand_id}", response_model=BrandOut)
@@ -82,7 +86,7 @@ async def replace_profile(
 async def delete_brand(
     brand: Brand = Depends(_brand_or_404), s: AsyncSession = Depends(get_session), storage=Depends(storage_dep)
 ):
-    keys = await repo.media_keys(s, brand_id=brand.id)
+    keys = await repo.media_keys(s, brand_id=brand.id) + await acc.publication_keys(s, brand_id=brand.id)
     await repo.delete_brand(s, brand)
     for key in keys:  # files go after the rows are gone
         storage.delete(key)
@@ -261,7 +265,7 @@ async def delete_run(
 ):
     if run.status == "awaiting_plan":  # drop its saved checkpoints too
         await _forget_on_app(request, run.id)
-    keys = await repo.media_keys(s, run_id=run.id)
+    keys = await repo.media_keys(s, run_id=run.id) + await acc.publication_keys(s, run_id=run.id)
     await repo.delete_run(s, run)
     for key in keys:
         storage.delete(key)

@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps import platform_graph_dep
+from backend.api.deps import current_user, platform_graph_dep
 from backend.db import repo
-from backend.db.models import Draft
+from backend.db.models import Draft, User
 from backend.db.session import get_session
 from backend.platforms import get_spec
 from backend.schemas import (
@@ -34,9 +34,11 @@ _VERSION_NAMES = {
 log = logging.getLogger("brandbot")
 
 
-async def _draft_or_404(draft_id: str, s: AsyncSession = Depends(get_session)) -> Draft:
+async def _draft_or_404(
+    draft_id: str, s: AsyncSession = Depends(get_session), user: User = Depends(current_user)
+) -> Draft:
     draft = await repo.get_draft(s, draft_id)
-    if draft is None:
+    if draft is None or draft.platform_result.run.brand.user_id != user.id:
         raise HTTPException(status_code=404, detail="Draft not found")
     return draft
 

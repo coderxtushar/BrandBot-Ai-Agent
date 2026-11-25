@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
 
 from backend.agents.graph import initial_state
-from backend.api.deps import graph_dep
+from backend.api.deps import current_user, graph_dep
 from backend.api.streaming import graph_events, sse
 from backend.schemas import RunRequest, RunResult
 
-router = APIRouter(prefix="/runs", tags=["stateless runs"])
+# Stateless runs still spend AI credits, so they need a signed-in user too.
+router = APIRouter(prefix="/runs", tags=["stateless runs"], dependencies=[Depends(current_user)])
 log = logging.getLogger("brandbot")
 
 

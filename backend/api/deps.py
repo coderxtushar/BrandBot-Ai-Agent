@@ -5,9 +5,13 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from fastapi import Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.agents.graph import build_graph, build_platform_graph
 from backend.config import get_settings
+from backend.db import accounts as acc
+from backend.db.models import User
+from backend.db.session import get_session
 
 log = logging.getLogger("brandbot")
 
@@ -93,3 +97,33 @@ def durable_graph_dep(request: Request, services: Services = Depends(services_de
 def platform_graph_dep(services: Services = Depends(services_dep)):
     """The per-platform write -> review loop, used to rewrite a single draft."""
     return _cached(("platform", services), lambda: build_platform_graph(services.llm, services.max_revisions))
+
+
+# ---------------------------------------------------------------------------
+# Accounts & publishing
+# ---------------------------------------------------------------------------
+
+SESSION_COOKIE = "bb_session"
+
+
+async def current_user(request: Request, s: AsyncSession = Depends(get_session)) -> User:
+    token = request.cookies.get(SESSION_COOKIE)
+    user = await acc.user_for_session(s, token) if token else None
+    if user is None:
+        raise HTTPException(status_code=401, detail="Sign in to continue.")
+    return user
+
+
+@lru_cache
+def get_clients():
+    from backend.publishing import build_clients
+
+    return build_clients(get_settings())
+
+
+def clients_dep():
+    return get_clients()
+
+
+def publisher_dep(request: Request):
+    return request.app.state.publisher

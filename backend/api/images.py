@@ -7,10 +7,10 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.agents import prompts
-from backend.api.deps import Services, services_dep, storage_dep
+from backend.api.deps import Services, current_user, services_dep, storage_dep
 from backend.api.drafts import _draft_or_404
 from backend.db import repo
-from backend.db.models import Draft
+from backend.db.models import Draft, User
 from backend.db.session import get_session
 from backend.platforms import get_spec
 from backend.schemas import BrandProfile, DraftImageOut, ImagePrompt, ImageRequest
@@ -69,8 +69,10 @@ async def list_images(draft: Draft = Depends(_draft_or_404), s: AsyncSession = D
 
 
 @router.delete("/images/{image_id}", status_code=204)
-async def delete_image(image_id: str, s: AsyncSession = Depends(get_session), storage=Depends(storage_dep)):
-    img = await repo.get_image(s, image_id)
+async def delete_image(
+    image_id: str, s: AsyncSession = Depends(get_session), storage=Depends(storage_dep), user: User = Depends(current_user)
+):
+    img = await repo.get_image(s, image_id, user.id)
     if img is None:
         raise HTTPException(status_code=404, detail="Image not found")
     storage.delete(await repo.delete_image(s, img))

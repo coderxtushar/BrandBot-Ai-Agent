@@ -7,7 +7,7 @@ from backend.config import Settings
 from backend.db.session import Database, get_database
 from backend.main import app
 from backend.services.fakes import FakeLLM
-from tests.conftest import stream, use_services
+from tests.conftest import USER, stream, use_services
 from tests.test_brands import make_brand
 
 PLATFORMS = ["linkedin", "x"]
@@ -98,11 +98,13 @@ def test_paused_run_survives_restart(tmp_path):
 
     try:
         with boot() as first:
+            first.post("/auth/register", json=USER)
             b = make_brand(first)
             paused = start_paused(first, b["id"])[-1][1]
         app.dependency_overrides.clear()
 
         with boot() as second:  # "restarted" server: new app state, new services, new graph
+            second.post("/auth/login", json={"email": USER["email"], "password": USER["password"]})
             result = stream(second, f"/runs/{paused['id']}/resume/stream", {"angle": "After restart"})[-1][1]
         assert result["status"] == "completed" and result["plan"]["angle"] == "After restart"
     finally:

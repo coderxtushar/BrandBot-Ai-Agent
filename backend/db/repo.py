@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.db.models import Brand, Draft, DraftImage, DraftVersion, PlatformRun, Run, utcnow
+from backend.db.accounts import publication_out
 from backend.platforms import get_spec
 from backend.schemas import (
     BrandCreate,
@@ -32,15 +33,16 @@ def brand_out(b: Brand) -> BrandOut:
     return BrandOut.model_validate(b, from_attributes=True)
 
 
-async def create_brand(s: AsyncSession, data: BrandCreate) -> Brand:
-    brand = Brand(name=data.name, input=data.input.model_dump())
+async def create_brand(s: AsyncSession, data: BrandCreate, user_id: str) -> Brand:
+    brand = Brand(name=data.name, input=data.input.model_dump(), user_id=user_id)
     s.add(brand)
     await s.commit()
     return brand
 
 
-async def list_brands(s: AsyncSession) -> list[Brand]:
-    return list((await s.scalars(select(Brand).order_by(Brand.updated_at.desc()))).all())
+async def list_brands(s: AsyncSession, user_id: str) -> list[Brand]:
+    q = select(Brand).where(Brand.user_id == user_id).order_by(Brand.updated_at.desc())
+    return list((await s.scalars(q)).all())
 
 
 async def get_brand(s: AsyncSession, brand_id: str) -> Brand | None:
@@ -226,6 +228,7 @@ def run_detail(run: Run) -> RunDetail:
                         review=d.review,
                         lint=_lint(r.platform, d.content),
                         images=[image_out(i) for i in d.images],
+                        publications=[publication_out(p) for p in d.publications],
                     )
                     for d in r.drafts
                 ],
@@ -328,8 +331,16 @@ async def add_image(s: AsyncSession, draft: Draft, **fields) -> DraftImage:
     return img
 
 
-async def get_image(s: AsyncSession, image_id: str) -> DraftImage | None:
-    return await s.get(DraftImage, image_id)
+async def get_image(s: AsyncSession, image_id: str, user_id: str) -> DraftImage | None:
+    q = (
+        select(DraftImage)
+        .join(Draft)
+        .join(PlatformRun)
+        .join(Run)
+        .join(Brand)
+        .where(DraftImage.id == image_id, Brand.user_id == user_id)
+    )
+    return (await s.scalars(q)).first()
 
 
 async def list_images(s: AsyncSession, draft_id: str) -> list[DraftImage]:

@@ -1,12 +1,17 @@
 import json
+import os
 from contextlib import asynccontextmanager
+
+os.environ.setdefault("SCHEDULER_ENABLED", "false")  # tests drive the scheduler by hand
 
 import pytest
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 
 from backend.agents.checkpoint import make_serde, open_checkpointer
-from backend.api.deps import Services, services_dep, storage_dep
+from backend.api.deps import Services, clients_dep, services_dep, storage_dep
+from backend.config import get_settings
+from backend.publishing.fake import FakePlatformClient
 from backend.db.session import Database, get_database
 from backend.main import app
 from backend.services.fakes import FakeLLM, FakeSearcher
@@ -42,16 +47,40 @@ def storage(tmp_path):
 
 
 @pytest.fixture
-def client(tmp_path, llm, image_gen, storage):
-    """API client backed by a throwaway SQLite DB, media folder, and fake AI services."""
+def platforms():
+    """Fake LinkedIn / X / Threads / Instagram clients that record what gets published."""
+    settings = get_settings()
+    return {p: FakePlatformClient(settings, p) for p in ("linkedin", "x", "threads", "instagram")}
+
+
+USER = {"name": "Test User", "email": "test@example.com", "password": "correct horse battery"}
+
+
+def sign_up(c: TestClient, **overrides) -> dict:
+    res = c.post("/auth/register", json={**USER, **overrides})
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+@pytest.fixture
+def anon_client(tmp_path, llm, image_gen, storage, platforms):
+    """API client backed by a throwaway SQLite DB, media folder, and fake AI + platform services. Not signed in."""
     db = Database(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
     app.dependency_overrides[get_database] = lambda: db
     app.dependency_overrides[open_checkpointer] = memory_checkpointer
     app.dependency_overrides[storage_dep] = lambda: storage
+    app.dependency_overrides[clients_dep] = lambda: platforms
     use_services(llm, images=image_gen)
-    with TestClient(app) as c:  # runs lifespan -> creates tables + checkpointer
+    with TestClient(app) as c:  # runs lifespan -> creates tables, checkpointer, publisher
         yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client(anon_client):
+    """Signed-in API client."""
+    sign_up(anon_client)
+    return anon_client
 
 
 def parse_sse(raw: str) -> list[tuple[str, dict]]:
