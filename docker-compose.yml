@@ -1,7 +1,15 @@
-# Local Postgres for Brand Bot.
-#   docker compose up -d
-#   DATABASE_URL=postgresql+asyncpg://brandbot:brandbot@localhost:5432/brandbot
-#   alembic upgrade head
+# Brand Bot, the whole stack: Postgres, migrations, API and web app.
+#
+#   docker compose up -d --build            -> http://localhost:3000
+#   DEMO_MODE=true docker compose up -d     -> canned AI output, no API keys needed
+#   docker compose up -d postgres           -> only the database, for running the API from source:
+#       DATABASE_URL=postgresql+asyncpg://brandbot:brandbot@localhost:5432/brandbot alembic upgrade head
+#
+# API keys and platform credentials come from .env (see .env.example). Ports: WEB_PORT, API_PORT, POSTGRES_PORT.
+
+x-database: &database
+  DATABASE_URL: postgresql+asyncpg://brandbot:brandbot@postgres:5432/brandbot
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -10,7 +18,7 @@ services:
       POSTGRES_PASSWORD: brandbot
       POSTGRES_DB: brandbot
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -18,5 +26,51 @@ services:
       interval: 5s
       retries: 10
 
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      <<: *database
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *database
+      DB_AUTO_CREATE: "false"
+      DEMO_MODE: ${DEMO_MODE:-false}
+      MEDIA_DIR: /data/media
+      LOG_FORMAT: text
+      # The browser reaches the API through the web app's /api proxy.
+      WEB_URL: http://localhost:${WEB_PORT:-3000}
+      API_PUBLIC_URL: http://localhost:${WEB_PORT:-3000}/api
+      CORS_ORIGINS: '["http://localhost:${WEB_PORT:-3000}"]'
+      # The Next server passes X-Forwarded-For through unchanged, so it can't be trusted here; per-IP limits see
+      # the web container. Behind a proxy that sets the header (Caddy, nginx, a load balancer), set this to 1.
+      TRUSTED_PROXY_HOPS: "0"
+    volumes:
+      - media:/data/media
+    ports:
+      - "${API_PORT:-8000}:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: frontend
+      args:
+        API_ORIGIN: http://api:8080
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
+
 volumes:
   pgdata:
+  media:
