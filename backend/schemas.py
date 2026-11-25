@@ -186,7 +186,8 @@ class RunResult(BaseModel):
 # Persistence API (brands & run history)
 # ---------------------------------------------------------------------------
 
-RunStatus = Literal["running", "completed", "failed", "cancelled"]
+RunStatus = Literal["running", "awaiting_plan", "completed", "failed", "cancelled"]
+DraftStatus = Literal["draft", "approved", "rejected"]
 
 
 class BrandCreate(BaseModel):
@@ -214,11 +215,28 @@ class BrandRunRequest(BaseModel):
     topic: str = Field(default="", max_length=500)
     variants: int = Field(default=1, ge=1, le=3)
     regenerate_profile: bool = Field(default=False, description="Ignore the saved profile and build a new one")
+    review_plan: bool = Field(
+        default=False,
+        description="Pause after research so the author can approve or edit the angle and sources before writing",
+    )
+
+
+class PlanDecision(BaseModel):
+    """The author's answer when a run pauses for plan review."""
+
+    angle: str | None = Field(default=None, max_length=500, description="Replace the planned angle")
+    pillar: str | None = Field(default=None, max_length=200)
+    source_urls: list[str] | None = Field(
+        default=None, description="Keep only these sources (None = keep all)"
+    )
+    guidance: str = Field(default="", max_length=1000, description="Extra direction for the writers")
 
 
 class DraftRef(BaseModel):
     id: str
-    status: str
+    status: DraftStatus
+    review: Review | None = Field(default=None, description="Review of this draft alone, after a rewrite")
+    lint: list[str] = Field(default_factory=list, description="Hard-rule problems in the current content")
 
 
 class StoredPlatformResult(PlatformResult):
@@ -244,6 +262,59 @@ class RunDetail(RunSummary):
     plan: ContentPlan | None
     sources: list[Source]
     results: list[StoredPlatformResult]
+
+
+
+# ---------------------------------------------------------------------------
+# Draft editing
+# ---------------------------------------------------------------------------
+
+
+class DraftOut(BaseModel):
+    id: str
+    run_id: str
+    platform: PlatformId
+    position: int
+    content: dict
+    text: str
+    status: DraftStatus
+    review: Review | None
+    lint: list[str] = Field(description="Hard-rule problems in the current content (e.g. too long)")
+    updated_at: datetime
+
+
+class DraftUpdate(BaseModel):
+    content: dict | None = Field(default=None, description="Full platform content; validated against the platform")
+    status: DraftStatus | None = None
+
+
+REWRITE_PRESETS = {
+    "shorter": "Make it noticeably shorter and tighter without losing the core insight.",
+    "punchier": "Make it punchier: a sharper hook, stronger verbs, shorter sentences.",
+    "data": "Make it more data-driven: lean on specific facts and numbers from the research.",
+    "personal": "Make it more personal: add a first-person story or lesson learned.",
+    "simpler": "Use simpler language a non-expert would understand.",
+}
+
+
+class RewriteRequest(BaseModel):
+    preset: Literal["shorter", "punchier", "data", "personal", "simpler"] | None = None
+    instruction: str = Field(default="", max_length=500, description="Free-text request, e.g. 'mention our launch'")
+    fresh: bool = Field(default=False, description="Write a brand-new draft instead of editing this one")
+
+    def text(self) -> str:
+        parts = [REWRITE_PRESETS[self.preset]] if self.preset else []
+        if self.instruction.strip():
+            parts.append(self.instruction.strip())
+        return " ".join(parts)
+
+
+class DraftVersionOut(BaseModel):
+    id: str
+    source: str = Field(description="generated | edited | rewrite | regenerate | restored")
+    note: str | None
+    text: str
+    created_at: datetime
 
 
 RunRequest.model_rebuild()
