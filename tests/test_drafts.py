@@ -86,6 +86,17 @@ def test_fresh_draft(client, run):
     assert versions(client, did)[0]["source"] == "regenerate"
 
 
+def test_rewrite_is_one_write_and_one_review(client, run, llm):
+    """A rewrite doesn't loop through automatic revisions while the user waits, even if the editor objects."""
+    llm.reject_first_review = True
+    llm._reviews.clear()  # the next review is a rejection
+    before = dict(llm.calls)
+    d = client.post(f"/drafts/{draft_id(run, 'linkedin')}/rewrite", json={"preset": "shorter"}).json()
+    calls = {k: v - before.get(k, 0) for k, v in llm.calls.items() if v != before.get(k, 0)}
+    assert calls == {"LinkedInPostDrafts": 1, "Review": 1}
+    assert d["review"]["approved"] is False and d["review"]["issues"] == ["Hook is too generic."]
+
+
 def test_rewrite_needs_some_instruction(client, run):
     assert client.post(f"/drafts/{draft_id(run, 'x')}/rewrite", json={}).status_code == 422
 
