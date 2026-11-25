@@ -17,6 +17,7 @@ class Services:
     llm: object
     searcher: object
     max_revisions: int
+    images: object = None  # ImageGenerator
 
 
 @lru_cache
@@ -25,14 +26,32 @@ def get_services() -> Services:
     s = get_settings()
     if s.demo_mode:
         from backend.services.fakes import FakeLLM, FakeSearcher
+        from backend.services.images import FakeImageGenerator
 
         log.warning("DEMO_MODE is on: returning canned content, no AI calls are made.")
-        return Services(FakeLLM(reject_first_review=True, delay=0.6), FakeSearcher(delay=0.8), s.max_revisions)
+        return Services(
+            FakeLLM(reject_first_review=True, delay=0.6),
+            FakeSearcher(delay=0.8),
+            s.max_revisions,
+            FakeImageGenerator(delay=1.2),
+        )
 
+    from backend.services.images import GeminiImageGenerator
     from backend.services.llm import GeminiClient
     from backend.services.search import TavilySearcher
 
-    return Services(GeminiClient(s), TavilySearcher(s), s.max_revisions)
+    return Services(GeminiClient(s), TavilySearcher(s), s.max_revisions, GeminiImageGenerator(s))
+
+
+@lru_cache
+def get_storage():
+    from backend.services.storage import LocalMediaStorage
+
+    return LocalMediaStorage(get_settings().media_dir)
+
+
+def storage_dep():
+    return get_storage()
 
 
 def services_dep() -> Services:

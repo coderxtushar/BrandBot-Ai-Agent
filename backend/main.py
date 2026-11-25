@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend.agents.checkpoint import open_checkpointer
-from backend.api import brands, drafts, runs
+from backend.api import brands, drafts, images, runs
 from backend.config import get_settings
 from backend.db.session import get_database
 from backend.platforms import PLATFORMS
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Brand Bot API",
     description="Multi-platform personal branding agent: brand profile, research, and platform-native content.",
-    version="0.4.0",
+    version="0.5.0",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -48,6 +48,7 @@ app.add_middleware(
 )
 app.include_router(brands.router)
 app.include_router(drafts.router)
+app.include_router(images.router)
 app.include_router(runs.router)
 
 

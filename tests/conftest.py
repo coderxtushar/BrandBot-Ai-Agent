@@ -6,10 +6,12 @@ from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 
 from backend.agents.checkpoint import make_serde, open_checkpointer
-from backend.api.deps import Services, services_dep
+from backend.api.deps import Services, services_dep, storage_dep
 from backend.db.session import Database, get_database
 from backend.main import app
 from backend.services.fakes import FakeLLM, FakeSearcher
+from backend.services.images import FakeImageGenerator
+from backend.services.storage import LocalMediaStorage
 
 
 @asynccontextmanager
@@ -17,9 +19,9 @@ async def memory_checkpointer():
     yield InMemorySaver(serde=make_serde())
 
 
-def use_services(llm, searcher=None, max_revisions=2):
+def use_services(llm, searcher=None, max_revisions=2, images=None):
     """Point the API at these (fake) AI services."""
-    services = Services(llm, searcher or FakeSearcher(), max_revisions)
+    services = Services(llm, searcher or FakeSearcher(), max_revisions, images or FakeImageGenerator())
     app.dependency_overrides[services_dep] = lambda: services
     return services
 
@@ -30,12 +32,23 @@ def llm():
 
 
 @pytest.fixture
-def client(tmp_path, llm):
-    """API client backed by a throwaway SQLite DB and the fake LLM/search."""
+def image_gen():
+    return FakeImageGenerator()
+
+
+@pytest.fixture
+def storage(tmp_path):
+    return LocalMediaStorage(tmp_path / "media")
+
+
+@pytest.fixture
+def client(tmp_path, llm, image_gen, storage):
+    """API client backed by a throwaway SQLite DB, media folder, and fake AI services."""
     db = Database(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
     app.dependency_overrides[get_database] = lambda: db
     app.dependency_overrides[open_checkpointer] = memory_checkpointer
-    use_services(llm)
+    app.dependency_overrides[storage_dep] = lambda: storage
+    use_services(llm, images=image_gen)
     with TestClient(app) as c:  # runs lifespan -> creates tables + checkpointer
         yield c
     app.dependency_overrides.clear()

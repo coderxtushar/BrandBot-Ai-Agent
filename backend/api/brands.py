@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from backend.agents.graph import initial_state
-from backend.api.deps import durable_graph_dep
+from backend.api.deps import durable_graph_dep, storage_dep
 from backend.api.streaming import graph_events, sse
 from backend.db import repo
 from backend.db.models import Brand, Run
@@ -79,8 +79,13 @@ async def replace_profile(
 
 
 @router.delete("/brands/{brand_id}", status_code=204)
-async def delete_brand(brand: Brand = Depends(_brand_or_404), s: AsyncSession = Depends(get_session)):
+async def delete_brand(
+    brand: Brand = Depends(_brand_or_404), s: AsyncSession = Depends(get_session), storage=Depends(storage_dep)
+):
+    keys = await repo.media_keys(s, brand_id=brand.id)
     await repo.delete_brand(s, brand)
+    for key in keys:  # files go after the rows are gone
+        storage.delete(key)
     return Response(status_code=204)
 
 
@@ -248,10 +253,18 @@ async def get_run(run: Run = Depends(_run_or_404)):
 
 
 @router.delete("/runs/{run_id}", status_code=204)
-async def delete_run(request: Request, run: Run = Depends(_run_or_404), s: AsyncSession = Depends(get_session)):
+async def delete_run(
+    request: Request,
+    run: Run = Depends(_run_or_404),
+    s: AsyncSession = Depends(get_session),
+    storage=Depends(storage_dep),
+):
     if run.status == "awaiting_plan":  # drop its saved checkpoints too
         await _forget_on_app(request, run.id)
+    keys = await repo.media_keys(s, run_id=run.id)
     await repo.delete_run(s, run)
+    for key in keys:
+        storage.delete(key)
     return Response(status_code=204)
 
 
