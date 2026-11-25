@@ -19,4 +19,6 @@ psycopg[binary]==3.3.9
 argon2-cffi==25.1.0
 cryptography==50.0.2
 httpx==0.28.1
+google-cloud-storage==3.17.2
+langsmith==0.16.2
 pillow==13.0.0

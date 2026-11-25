@@ -64,21 +64,21 @@ class Publisher:
                 await s.commit()
         return Credentials(access_token=token, external_id=account.external_id, username=account.username)
 
-    def _image(self, pub: Publication, client: PlatformClient) -> ImageAsset | None:
+    async def _image(self, pub: Publication, client: PlatformClient) -> ImageAsset | None:
         draft = pub.draft
         if not (pub.include_image and client.supports_image and draft.images):
             return None
         img = next((i for i in draft.images if i.id == pub.image_id), draft.images[0])
-        path = self.storage.path(img.storage_key)
-        if path is None:
+        data = await self.storage.read(img.storage_key)
+        if data is None:
             raise PublishError("The image file is missing. Generate a new image or publish without it.")
-        data, mime, key = path.read_bytes(), img.mime, img.storage_key
+        mime, key = img.mime, img.storage_key
         if client.needs_jpeg and mime != "image/jpeg":
             try:
                 data, mime = _to_jpeg(data), "image/jpeg"
             except Exception as exc:  # e.g. demo SVGs
                 raise PublishError(f"This image can't be converted to JPEG for {client.label}: {exc}") from exc
-            key = pub.asset_key or self.storage.save(data, mime)
+            key = pub.asset_key or await self.storage.save(data, mime)
             pub.asset_key = key
         public_url = f"{self.settings.api_public_url.rstrip('/')}/media/{key}"
         if client.needs_public_image and _is_local(public_url) and not self.settings.demo_mode:
@@ -100,7 +100,7 @@ class Publisher:
                     raise PublishError(f"Publishing to {pub.platform} isn't supported.")
                 creds = await self._credentials(s, pub, client)
                 spec = get_spec(pub.platform)
-                image = self._image(pub, client)
+                image = await self._image(pub, client)
                 if client.image_required and image is None:
                     raise PublishError(f"{client.label} posts need an image. Generate one for this draft first.")
                 content = spec.content_model.model_validate(pub.draft.content)

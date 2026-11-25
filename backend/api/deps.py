@@ -49,9 +49,9 @@ def get_services() -> Services:
 
 @lru_cache
 def get_storage():
-    from backend.services.storage import LocalMediaStorage
+    from backend.services.storage import build_storage
 
-    return LocalMediaStorage(get_settings().media_dir)
+    return build_storage(get_settings())
 
 
 def storage_dep():
