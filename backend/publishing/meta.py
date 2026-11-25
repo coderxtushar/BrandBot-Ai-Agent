@@ -9,6 +9,7 @@ import asyncio
 
 from backend.publishing.base import (
     Credentials,
+    Metrics,
     PlatformClient,
     Profile,
     PublishError,
@@ -41,6 +42,17 @@ class _MetaClient(PlatformClient):
             await asyncio.sleep(self.poll_interval)
             waited += self.poll_interval
 
+    @staticmethod
+    def _insight_values(body: dict) -> dict[str, int]:
+        """Insights come as [{"name", "values": [{"value"}]}] or [{"name", "total_value": {"value"}}]."""
+        out = {}
+        for item in body.get("data", []):
+            if "total_value" in item:
+                out[item["name"]] = int(item["total_value"].get("value") or 0)
+            elif item.get("values"):
+                out[item["name"]] = int(item["values"][-1].get("value") or 0)
+        return out
+
     async def _permalink(self, http, media_id: str, token: str) -> str | None:
         resp = await http.get(f"{self.graph}/{media_id}", params={"fields": "permalink", "access_token": token})
         return resp.json().get("permalink") if resp.is_success else None
@@ -54,7 +66,7 @@ class _MetaClient(PlatformClient):
 class ThreadsClient(_MetaClient):
     platform = "threads"
     label = "Threads"
-    scopes = ["threads_basic", "threads_content_publish", "threads_manage_replies"]
+    scopes = ["threads_basic", "threads_content_publish", "threads_manage_replies", "threads_manage_insights"]
     needs_public_image = True
     graph = "https://graph.threads.net/v1.0"
     status_field = "status"
@@ -144,6 +156,23 @@ class ThreadsClient(_MetaClient):
             url = await self._permalink(http, first_id, token)
         return PublishResult(external_id=first_id, url=url)
 
+    async def fetch_metrics(self, creds: Credentials, external_id: str) -> Metrics:
+        async with self.http() as http:
+            body = self.check(
+                await http.get(
+                    f"{self.graph}/{external_id}/insights",
+                    params={"metric": "views,likes,replies,reposts,quotes,shares", "access_token": creds.access_token},
+                ),
+                "read post stats (reconnect Threads if this keeps failing)",
+            ).json()
+        v = self._insight_values(body)
+        return Metrics(
+            views=v.get("views"),
+            likes=v.get("likes", 0),
+            comments=v.get("replies", 0),
+            shares=v.get("reposts", 0) + v.get("quotes", 0) + v.get("shares", 0),
+        )
+
 
 # ---------------------------------------------------------------------------
 # Instagram
@@ -153,7 +182,7 @@ class ThreadsClient(_MetaClient):
 class InstagramClient(_MetaClient):
     platform = "instagram"
     label = "Instagram"
-    scopes = ["instagram_business_basic", "instagram_business_content_publish"]
+    scopes = ["instagram_business_basic", "instagram_business_content_publish", "instagram_business_manage_insights"]
     needs_jpeg = True  # Instagram only accepts JPEG images
     needs_public_image = True
     image_required = True  # no text-only posts on Instagram
@@ -238,3 +267,23 @@ class InstagramClient(_MetaClient):
             ).json()["id"]
             url = await self._permalink(http, media_id, token)
         return PublishResult(external_id=media_id, url=url)
+
+    async def fetch_metrics(self, creds: Credentials, external_id: str) -> Metrics:
+        token = creds.access_token
+        async with self.http() as http:
+            # Likes and comments come with the basic permission and work for every account.
+            base = self.check(
+                await http.get(f"{self.graph}/{external_id}", params={"fields": "like_count,comments_count", "access_token": token}),
+                "read post stats",
+            ).json()
+            metrics = Metrics(likes=base.get("like_count", 0), comments=base.get("comments_count", 0))
+            # Views, reach, shares and saves need the insights permission, and aren't available for every account.
+            resp = await http.get(
+                f"{self.graph}/{external_id}/insights", params={"metric": "views,reach,shares,saved", "access_token": token}
+            )
+            if resp.is_success:
+                v = self._insight_values(resp.json())
+                metrics = metrics.model_copy(
+                    update={"views": v.get("views"), "reach": v.get("reach"), "shares": v.get("shares", 0), "saves": v.get("saved", 0)}
+                )
+        return metrics

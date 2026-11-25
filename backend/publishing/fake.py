@@ -4,10 +4,13 @@
 so the full state-checking OAuth round-trip still runs.
 """
 
+import hashlib
 import itertools
 
 from backend.publishing.base import (
     Credentials,
+    Metrics,
+    MetricsUnavailable,
     PlatformClient,
     Profile,
     PublishError,
@@ -31,6 +34,7 @@ class FakePlatformClient(PlatformClient):
         self.posts: list[tuple[Credentials, PublishPayload]] = []
         self.fail_next: PublishError | None = None
         self.refreshed = 0
+        self.metric_reads: dict[str, int] = {}
 
     def configured(self) -> bool:
         return True
@@ -59,3 +63,21 @@ class FakePlatformClient(PlatformClient):
         self.posts.append((creds, payload))
         post_id = str(next(_ids))
         return PublishResult(external_id=post_id, url=f"https://example.com/demo/{self.platform}/{post_id}")
+
+    async def fetch_metrics(self, creds: Credentials, external_id: str) -> Metrics:
+        """Plausible numbers that grow a little on every read (LinkedIn behaves like the real API: no stats)."""
+        if self.platform == "linkedin":
+            raise MetricsUnavailable("LinkedIn doesn't share post stats with this app. Add the numbers yourself.")
+        n = self.metric_reads[external_id] = self.metric_reads.get(external_id, 0) + 1
+        seed = int(hashlib.sha256(f"{self.platform}{external_id}".encode()).hexdigest()[:8], 16)
+        scale = {"x": 900, "threads": 600, "instagram": 1500}.get(self.platform, 800)
+        views = int(scale * (0.4 + (seed % 100) / 60) * (1 + 0.35 * n))
+        rate = 0.015 + (seed % 37) / 1000
+        likes = int(views * rate)
+        return Metrics(
+            views=views,
+            likes=likes,
+            comments=int(likes * 0.18),
+            shares=int(likes * 0.12),
+            saves=int(likes * (0.25 if self.platform == "instagram" else 0.08)),
+        )

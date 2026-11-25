@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 import httpx
 
 from backend.config import Settings
+from backend.schemas import Metrics
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,10 @@ class PublishPayload:
 class PublishResult:
     external_id: str
     url: str | None = None
+
+
+class MetricsUnavailable(Exception):
+    """The platform doesn't share post stats with this app; the user can type them in."""
 
 
 class PublishError(Exception):
@@ -107,6 +112,9 @@ class PlatformClient(ABC):
 
     @abstractmethod
     async def publish(self, creds: Credentials, payload: PublishPayload) -> PublishResult: ...
+
+    async def fetch_metrics(self, creds: Credentials, external_id: str) -> "Metrics":
+        raise MetricsUnavailable(f"{self.label} doesn't share post stats with this app. Add the numbers yourself.")
 
     # -- helpers --------------------------------------------------------------
 

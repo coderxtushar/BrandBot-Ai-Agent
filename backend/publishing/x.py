@@ -8,6 +8,7 @@ import base64
 
 from backend.publishing.base import (
     Credentials,
+    Metrics,
     PlatformClient,
     Profile,
     PublishError,
@@ -93,3 +94,23 @@ class XClient(PlatformClient):
                 first_id = first_id or previous
         handle = creds.username or "i"
         return PublishResult(external_id=first_id, url=f"https://x.com/{handle}/status/{first_id}")
+
+    async def fetch_metrics(self, creds: Credentials, external_id: str) -> Metrics:
+        """Stats of the thread's first post (the one people see in their feed)."""
+        async with self.http() as http:
+            data = self.check(
+                await http.get(
+                    f"{API}/2/tweets/{external_id}",
+                    params={"tweet.fields": "public_metrics"},
+                    headers={"Authorization": f"Bearer {creds.access_token}"},
+                ),
+                "read post stats",
+            ).json()["data"]
+        m = data.get("public_metrics", {})
+        return Metrics(
+            views=m.get("impression_count"),
+            likes=m.get("like_count", 0),
+            comments=m.get("reply_count", 0),
+            shares=m.get("retweet_count", 0) + m.get("quote_count", 0),
+            saves=m.get("bookmark_count", 0),
+        )
