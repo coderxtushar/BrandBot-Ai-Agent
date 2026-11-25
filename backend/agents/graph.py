@@ -64,6 +64,7 @@ class RunState(TypedDict, total=False):
     variants: int
     review_plan: bool
     guidance: str
+    performance: dict | None  # what has worked before (see backend/db/performance.py)
     brand_profile: BrandProfile | None
     plan: ContentPlan
     sources: list[Source]
@@ -79,6 +80,7 @@ class PlatformState(TypedDict, total=False):
     variants: int
     past_posts: str
     guidance: str
+    best_examples: list[str]
     # single-draft rewrite (optional)
     seed: dict | None
     instruction: str
@@ -130,6 +132,7 @@ def build_platform_graph(llm: LLMClient, max_revisions: int):
             feedback=prompts.merge_feedback(state.get("lint_issues", []), state.get("review")) if is_revision else [],
             guidance=guidance,
             author_request=instruction if (seed is not None and not fresh) else "",
+            best_examples=state.get("best_examples") or None,
         )
         try:
             out = await llm.structured(spec.drafts_model, system, user, role="writer")
@@ -222,7 +225,8 @@ def build_graph(llm: LLMClient, searcher: Searcher, max_revisions: int = 2, chec
 
     async def planner(state: RunState):
         _emit({"stage": "planning", "status": "running"})
-        system, user = prompts.planner_prompts(state["brand_profile"], state.get("topic", ""))
+        notes = (state.get("performance") or {}).get("pillar_notes", "")
+        system, user = prompts.planner_prompts(state["brand_profile"], state.get("topic", ""), notes)
         plan = await llm.structured(ContentPlan, system, user)
         _emit({"stage": "planning", "status": "done", "angle": plan.angle})
         return {"plan": plan}
@@ -253,6 +257,7 @@ def build_graph(llm: LLMClient, searcher: Searcher, max_revisions: int = 2, chec
         }
 
     def fan_out(state: RunState):
+        examples = (state.get("performance") or {}).get("examples", {})
         return [
             Send(
                 "platform",
@@ -264,6 +269,7 @@ def build_graph(llm: LLMClient, searcher: Searcher, max_revisions: int = 2, chec
                     "variants": state.get("variants", 1),
                     "past_posts": state["brand"].past_posts,
                     "guidance": state.get("guidance", ""),
+                    "best_examples": examples.get(p, []),  # PlatformId is a str enum
                 },
             )
             for p in dict.fromkeys(state["platforms"])  # de-dupe, keep order
@@ -284,7 +290,7 @@ def build_graph(llm: LLMClient, searcher: Searcher, max_revisions: int = 2, chec
     return g.compile(checkpointer=checkpointer)
 
 
-def initial_state(req, review_plan: bool = False) -> RunState:
+def initial_state(req, review_plan: bool = False, performance: dict | None = None) -> RunState:
     """Build graph input from a RunRequest."""
     state: RunState = {
         "brand": req.brand,
@@ -293,6 +299,7 @@ def initial_state(req, review_plan: bool = False) -> RunState:
         "variants": req.variants,
         "review_plan": review_plan,
         "guidance": "",
+        "performance": performance,
         "results": [],
     }
     if req.brand_profile:

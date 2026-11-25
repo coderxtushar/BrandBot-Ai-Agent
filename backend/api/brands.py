@@ -14,6 +14,7 @@ from backend.db import accounts as acc
 from backend.api.streaming import graph_events, sse
 from backend.db import repo
 from backend.db.models import Brand, Run, User
+from backend.db.performance import brand_performance
 from backend.db.session import Database, get_database, get_session
 from backend.schemas import (
     BrandCreate,
@@ -159,10 +160,11 @@ async def create_brand_run(
 ):
     """Generate and save a run (no streaming). With review_plan it returns paused (status awaiting_plan)."""
     req = _run_request(brand, body)
+    performance = await brand_performance(s, brand.id, [p.value for p in req.platforms]) if body.learn_from_results else None
     run_id = (await repo.create_run(s, brand, body)).id
     try:
         async for kind, payload in graph_events(
-            graph, initial_state(req, body.review_plan), order=req.platforms, config=_thread(run_id)
+            graph, initial_state(req, body.review_plan, performance), order=req.platforms, config=_thread(run_id)
         ):
             if kind == "interrupt":
                 return repo.run_detail(await repo.mark_awaiting(s, run_id, payload))
@@ -190,11 +192,14 @@ async def stream_brand_run(
     for plan review; continue with POST /runs/{id}/resume/stream), or `error`.
     """
     req = _run_request(brand, body)
+    performance = await brand_performance(s, brand.id, [p.value for p in req.platforms]) if body.learn_from_results else None
     run_id = (await repo.create_run(s, brand, body)).id
 
     async def events():
         yield sse("run", {"run_id": run_id})
-        async for event in _drive(graph, db, run_id, initial_state(req, body.review_plan), req.platforms):
+        if performance:
+            yield sse("progress", {"stage": "learning", "status": "done", "platforms": sorted(performance["examples"])})
+        async for event in _drive(graph, db, run_id, initial_state(req, body.review_plan, performance), req.platforms):
             yield event
 
     return EventSourceResponse(events())

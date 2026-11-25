@@ -43,7 +43,7 @@ def _profile_block(p: BrandProfile) -> str:
     )
 
 
-def planner_prompts(profile: BrandProfile, topic: str) -> tuple[str, str]:
+def planner_prompts(profile: BrandProfile, topic: str, performance_notes: str = "") -> tuple[str, str]:
     system = (
         "You are a content strategist. Choose ONE strong, specific angle for today's content and "
         "plan 2-3 web searches that will surface fresh facts, data, examples or news to support it."
@@ -54,6 +54,8 @@ def planner_prompts(profile: BrandProfile, topic: str) -> tuple[str, str]:
         else "Pick the pillar and angle most likely to resonate with the audience right now."
     )
     user = f"Today is {date.today():%B %d, %Y}.\n\nBrand profile:\n{_profile_block(profile)}\n\n{focus}"
+    if performance_notes:
+        user += f"\n\n{performance_notes} Lean toward what resonates, but keep some variety."
     return system, user
 
 
@@ -75,6 +77,7 @@ def writer_prompts(
     feedback: list[str],
     guidance: str = "",
     author_request: str = "",
+    best_examples: list[str] | None = None,
 ) -> tuple[str, str]:
     """Build writer prompts.
 
@@ -98,6 +101,13 @@ def writer_prompts(
     )
     if guidance.strip():
         user += f"Direction from the author (follow it):\n{guidance.strip()}\n\n"
+    if best_examples:
+        joined = "\n\n---\n\n".join(best_examples)
+        user += (
+            f"These earlier {spec.label} posts by this author performed best with their audience:\n"
+            f"<best_posts>\n{joined}\n</best_posts>\n"
+            "Learn from their hooks, length and structure. Never copy them or reuse their topic.\n\n"
+        )
 
     if previous is not None and author_request and not feedback:
         user += (
