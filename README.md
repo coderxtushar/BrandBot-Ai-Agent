@@ -9,9 +9,9 @@ and has a reviewer agent check every draft (sending weak ones back for a rewrite
 ## How it works
 
 ```
-profile ─► planner ─► research ─┬─ Send ─► platform[linkedin] ─┐
-(reused if saved)               ├─ Send ─► platform[x]        ─┼─► result
-                                └─ Send ─► platform[...]      ─┘
+profile ─► planner ─► research ─► plan_review ─┬─ Send ─► platform[linkedin] ─┐
+(reused if saved)                 (optional    ├─ Send ─► platform[x]        ─┼─► result
+                                   pause)      └─ Send ─► platform[...]      ─┘
 
 platform subgraph (runs in parallel for each platform):
   write ─► review ─► approved or out of attempts? ─► finalize
@@ -24,9 +24,11 @@ platform subgraph (runs in parallel for each platform):
 - **Cheap retries**: drafts that break hard rules (such as a tweet over 280 characters) go straight back to the writer without paying for an LLM review.
 - **Safe research**: web results go into prompts as delimited, untrusted data.
 - **Saved brands and history**: brands, their profiles, and every run (plan, sources, drafts, reviews) are stored. A saved profile is reused, so runs skip that step until you change your brand input.
+- **Human in the loop**: with "review the angle first", a run pauses after research (LangGraph `interrupt()`). You edit the angle, drop sources, or add guidance, then it continues. The run is checkpointed (SQLite file, or Postgres), so a paused run survives server restarts.
+- **Editing loop**: approve/reject each draft, edit it in a form built from the platform's own format, or ask the AI to rewrite it ("shorter", "punchier", or your own words). Rewrites go through the same write → review loop. Every change is a version you can restore.
 
 ```
-brands ─< runs ─< platform_results ─< drafts
+brands ─< runs ─< platform_results ─< drafts ─< draft_versions
 ```
 
 ## Run it
@@ -48,6 +50,7 @@ npm run dev                 # http://localhost:5173
 ### Database
 
 By default the data lives in a local SQLite file (`brandbot.db`), and tables are created on startup.
+Paused-run checkpoints go to `brandbot_checkpoints.db` (with Postgres, LangGraph creates its own tables in the same database).
 For Postgres:
 
 ```bash
@@ -74,6 +77,12 @@ A test fails if the models and migrations drift apart.
 | POST | `/brands/{id}/runs` | Same, without streaming |
 | GET | `/brands/{id}/runs` | Run history (`limit`, `offset`) |
 | GET / DELETE | `/runs/{id}` | A saved run with all drafts, or delete it |
+| POST | `/runs/{id}/resume/stream` | Continue a run paused for plan review (`angle`, `pillar`, `source_urls`, `guidance`) |
+| POST | `/runs/{id}/cancel` | Discard a paused run |
+| GET / PATCH | `/drafts/{id}` | Read a draft, or save an edit (validated per platform) and/or approve/reject it |
+| POST | `/drafts/{id}/rewrite` | AI rewrite: `preset` and/or `instruction`, or `fresh: true` for a new draft |
+| GET | `/drafts/{id}/versions` | Version history, newest first |
+| POST | `/drafts/{id}/versions/{vid}/restore` | Restore an earlier version |
 | POST | `/runs`, `/runs/stream` | Stateless: generate without saving |
 
 Interactive docs: http://localhost:8000/docs
@@ -92,7 +101,7 @@ cd frontend && npm run lint && npm run build
 - [x] **3. Streaming API + tests**: SSE progress, offline tests, demo mode
 - [x] **4. React app**: platform picker, live progress, native previews, copy / .md export
 - [x] **5. Persistence**: SQLAlchemy + Alembic (SQLite or Postgres), saved brands, profile editor, run history UI
-- [ ] **6. Editing loop**: regenerate one draft, "shorter / punchier" rewrites, approve/reject drafts, LangGraph checkpointer + `interrupt()` for approval
+- [x] **6. Editing loop**: approve/reject, structured editor, AI rewrites and fresh drafts, version history, plan review via checkpointed `interrupt()`
 - [ ] **7. Visuals**: Gemini image generation for Instagram covers and carousel slides, Shorts thumbnails
 - [ ] **8. Accounts and publishing**: auth, OAuth for LinkedIn / X / Threads / Instagram, scheduled publishing
 - [ ] **9. Content calendar and analytics**: schedule view, metrics pulled back in, best performers feed future runs
