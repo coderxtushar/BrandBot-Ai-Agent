@@ -25,5 +25,6 @@ USER app
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
     CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ[\"PORT\"]}/health', timeout=2)"
-# One process per container; the platform scales containers. Migrations run separately: `alembic upgrade head`.
-CMD ["sh", "-c", "exec uvicorn backend.main:app --host 0.0.0.0 --port \"$PORT\" --no-access-log --timeout-graceful-shutdown 8"]
+# One process per container; the platform scales containers. Migrations run separately (`alembic upgrade head`),
+# or at start with MIGRATE_ON_START=true on single-instance hosts without a pre-deploy step (Render's free plan).
+CMD ["sh", "-c", "if [ \"$MIGRATE_ON_START\" = true ]; then alembic upgrade head || exit 1; fi; exec uvicorn backend.main:app --host 0.0.0.0 --port \"$PORT\" --no-access-log --timeout-graceful-shutdown 8"]
