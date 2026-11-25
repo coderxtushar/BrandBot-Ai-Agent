@@ -1,7 +1,9 @@
-"""Endpoints for infrastructure, not people. Cloud Scheduler calls /internal/tick on a schedule.
+"""Endpoints for infrastructure, not people. A cron calls /internal/tick on a schedule: Cloud Scheduler on Cloud
+Run, the GitHub Actions workflow .github/workflows/tick.yml on Render.
 
-On Cloud Run an instance only gets CPU while it serves a request and may scale to zero, so the in-process
-scheduler can't be trusted there: set SCHEDULER_ENABLED=false and let a cron call this instead.
+Both hosts can stop an idle instance (Cloud Run also only gives CPU during requests; Render's free plan sleeps
+after 15 idle minutes), so the in-process scheduler can't be trusted there: set SCHEDULER_ENABLED=false and let
+the cron call this instead.
 """
 
 import hmac
