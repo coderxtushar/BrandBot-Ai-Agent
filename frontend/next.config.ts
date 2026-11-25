@@ -4,6 +4,10 @@ import type { NextConfig } from "next";
 // on any host (Vercel, Cloud Run, a custom domain) and no CORS preflights are needed.
 // API_ORIGIN is read at build time: set it before `next build`.
 const apiOrigin = (process.env.API_ORIGIN || "http://localhost:8000").replace(/\/$/, "");
+if (process.env.VERCEL && !process.env.API_ORIGIN && !process.env.NEXT_PUBLIC_API_URL) {
+  // Without it every /api call would go to localhost and the deployed app couldn't sign anyone in.
+  throw new Error("Set API_ORIGIN in the Vercel project (your Cloud Run API URL) and redeploy.");
+}
 
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
