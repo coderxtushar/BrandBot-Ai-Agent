@@ -1,5 +1,9 @@
 """Database tables.
 
+users ─< sessions
+users ─< platform_accounts ─< publications >─ drafts
+users ─< brands
+
 brands ─< runs ─< platform_results ─< drafts ─< draft_versions
                                               └─< draft_images
 
@@ -14,7 +18,7 @@ brands ─< runs ─< platform_results ─< drafts ─< draft_versions
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, TypeDecorator
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, TypeDecorator, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -59,10 +63,88 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
 
 
+class User(TimestampMixin, Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)  # stored lower-cased
+    name: Mapped[str] = mapped_column(String(120))
+    password_hash: Mapped[str] = mapped_column(String(255))
+
+
+class Session(Base):
+    """A signed-in browser. The cookie holds a random token; only its SHA-256 is stored."""
+
+    __tablename__ = "sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+
+class OAuthState(Base):
+    """One pending "Connect account" round-trip (CSRF state + PKCE verifier)."""
+
+    __tablename__ = "oauth_states"
+
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    platform: Mapped[str] = mapped_column(String(32))
+    code_verifier: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class PlatformAccount(TimestampMixin, Base):
+    """A connected social account. Tokens are encrypted at rest."""
+
+    __tablename__ = "platform_accounts"
+    __table_args__ = (UniqueConstraint("user_id", "platform", "external_id", name="uq_account_per_user"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    platform: Mapped[str] = mapped_column(String(32))
+    external_id: Mapped[str] = mapped_column(String(255))
+    display_name: Mapped[str] = mapped_column(String(255))
+    username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    access_token: Mapped[str] = mapped_column(Text)  # encrypted
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)  # encrypted
+    expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    scopes: Mapped[str] = mapped_column(Text, default="")
+
+
+class Publication(TimestampMixin, Base):
+    """A draft scheduled for, or published to, a connected account."""
+
+    __tablename__ = "publications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    draft_id: Mapped[str] = mapped_column(ForeignKey("drafts.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[str | None] = mapped_column(
+        ForeignKey("platform_accounts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    platform: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(20), default="scheduled")  # scheduled|publishing|published|failed|cancelled
+    scheduled_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+    published_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    image_id: Mapped[str | None] = mapped_column(ForeignKey("draft_images.id", ondelete="SET NULL"), nullable=True)
+    include_image: Mapped[bool] = mapped_column(Boolean, default=True)
+    asset_key: Mapped[str | None] = mapped_column(String(255), nullable=True)  # converted copy (e.g. JPEG for Instagram)
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    external_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+    draft: Mapped["Draft"] = relationship(back_populates="publications")
+    account: Mapped[PlatformAccount | None] = relationship(lazy="selectin")
+
+
 class Brand(TimestampMixin, Base):
     __tablename__ = "brands"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
     input: Mapped[dict] = mapped_column(JSONType)
     profile: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
@@ -133,6 +215,13 @@ class Draft(TimestampMixin, Base):
     review: Mapped[dict | None] = mapped_column(JSONType, nullable=True)  # set when this draft alone is re-reviewed
 
     platform_result: Mapped[PlatformRun] = relationship(back_populates="drafts")
+    publications: Mapped[list["Publication"]] = relationship(
+        back_populates="draft",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="Publication.scheduled_at.desc()",
+        lazy="selectin",
+    )
     images: Mapped[list["DraftImage"]] = relationship(
         back_populates="draft",
         cascade="all, delete-orphan",
