@@ -10,7 +10,14 @@ from backend.db import accounts as acc
 from backend.db.models import Publication, utcnow
 from backend.db.session import Database
 from backend.platforms import get_spec
-from backend.publishing.base import Credentials, ImageAsset, PlatformClient, PublishError, PublishPayload
+from backend.publishing.base import (
+    Credentials,
+    ImageAsset,
+    MetricsUnavailable,
+    PlatformClient,
+    PublishError,
+    PublishPayload,
+)
 from backend.security import TokenCipher
 
 log = logging.getLogger("brandbot.publishing")
@@ -140,17 +147,59 @@ class Publisher:
         return done
 
 
+    async def collect_metrics(self, *, user_id: str | None = None, force: bool = False) -> tuple[int, int]:
+        """Re-read stats of recent published posts. Returns (updated, failed)."""
+        async with self.db.sessions() as s:
+            ids = await acc.due_for_metrics(
+                s,
+                now=utcnow(),
+                every=timedelta(hours=self.settings.metrics_refresh_hours),
+                max_age=timedelta(days=self.settings.metrics_max_age_days),
+                user_id=user_id,
+                force=force,
+            )
+        updated = failed = 0
+        for pub_id in ids:
+            async with self.db.sessions() as s:
+                pub = await acc.get_publication(s, pub_id)
+                client = self.clients.get(pub.platform) if pub else None
+                if pub is None or client is None:
+                    continue
+                try:
+                    creds = await self._credentials(s, pub, client)
+                    metrics = await client.fetch_metrics(creds, pub.external_id)
+                except MetricsUnavailable as exc:
+                    pub.metrics_error, pub.metrics_updated_at = str(exc), utcnow()  # don't ask again until the next round
+                    await s.commit()
+                    failed += 1
+                    continue
+                except Exception as exc:
+                    pub.metrics_error = f"Couldn't read stats: {exc}"
+                    await s.commit()
+                    failed += 1
+                    continue
+                await acc.record_metrics(s, pub, metrics)
+                updated += 1
+        return updated, failed
+
+
 class Scheduler:
     """Background loop inside the API process. For several API replicas, the atomic claim prevents duplicates."""
 
     def __init__(self, publisher: Publisher, interval: float):
         self.publisher, self.interval = publisher, interval
         self._task: asyncio.Task | None = None
+        self._last_metrics = 0.0
 
     async def _loop(self) -> None:
+        loop = asyncio.get_running_loop()
+        metrics_every = self.publisher.settings.metrics_refresh_hours * 3600
         while True:
             try:
                 await self.publisher.run_due()
+                if loop.time() - self._last_metrics >= min(metrics_every, 900):  # check at most every 15 min
+                    self._last_metrics = loop.time()
+                    await self.publisher.collect_metrics()
             except Exception:
                 log.exception("Scheduler tick failed")
             await asyncio.sleep(self.interval)

@@ -12,13 +12,14 @@ from backend.db.models import (
     OAuthState,
     PlatformAccount,
     PlatformRun,
+    PostMetric,
     Publication,
     Run,
     Session,
     User,
     utcnow,
 )
-from backend.schemas import ConnectionOut, PublicationOut, UserOut
+from backend.schemas import ConnectionOut, Metrics, MetricsOut, MetricsSnapshot, PublicationOut, UserOut
 from backend.security import hash_token, new_session_token
 
 # ---------------------------------------------------------------------------
@@ -157,6 +158,9 @@ def publication_out(p: Publication) -> PublicationOut:
         error=p.error,
         attempts=p.attempts,
         include_image=p.include_image,
+        metrics=MetricsOut.of(p.latest_metrics),
+        metrics_updated_at=p.metrics_updated_at,
+        metrics_error=p.metrics_error,
     )
 
 
@@ -175,10 +179,21 @@ async def get_publication(s: AsyncSession, pub_id: str, user_id: str | None = No
     return p
 
 
-async def list_publications(s: AsyncSession, user_id: str, statuses: list[str] | None, limit: int) -> list[Publication]:
+async def list_publications(
+    s: AsyncSession,
+    user_id: str,
+    statuses: list[str] | None,
+    limit: int,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> list[Publication]:
     q = _with_context(select(Publication).where(Publication.user_id == user_id))
     if statuses:
         q = q.where(Publication.status.in_(statuses))
+    if start:
+        q = q.where(Publication.scheduled_at >= start)
+    if end:
+        q = q.where(Publication.scheduled_at < end)
     q = q.order_by(Publication.scheduled_at.desc()).limit(limit)
     return list((await s.scalars(q)).all())
 
@@ -227,3 +242,57 @@ async def publication_keys(s: AsyncSession, *, run_id: str | None = None, brand_
     q = select(Publication.asset_key).join(Draft).join(PlatformRun).join(Run).where(Publication.asset_key.is_not(None))
     q = q.where(Run.id == run_id) if run_id else q.where(Run.brand_id == brand_id)
     return list((await s.scalars(q)).all())
+
+
+# ---------------------------------------------------------------------------
+# Metrics
+# ---------------------------------------------------------------------------
+
+
+async def record_metrics(s: AsyncSession, pub: Publication, metrics: Metrics, source: str = "api") -> None:
+    s.add(PostMetric(publication_id=pub.id, source=source, **metrics.model_dump()))
+    pub.latest_metrics = metrics.model_dump()
+    pub.metrics_updated_at = utcnow()
+    pub.metrics_error = None
+    await s.commit()
+
+
+async def metric_history(s: AsyncSession, pub_id: str) -> list[MetricsSnapshot]:
+    q = select(PostMetric).where(PostMetric.publication_id == pub_id).order_by(PostMetric.captured_at)
+    rows = (await s.scalars(q)).all()
+    return [
+        MetricsSnapshot(**MetricsOut.of(Metrics.model_validate(r, from_attributes=True)).model_dump(), captured_at=r.captured_at, source=r.source)
+        for r in rows
+    ]
+
+
+async def due_for_metrics(
+    s: AsyncSession, *, now: datetime, every: timedelta, max_age: timedelta, user_id: str | None = None, force: bool = False
+) -> list[str]:
+    """Published posts whose stats are worth (re)reading: recent, posted through a connected account."""
+    q = select(Publication.id).where(
+        Publication.status == "published",
+        Publication.external_id.is_not(None),
+        Publication.account_id.is_not(None),
+        Publication.published_at >= now - max_age,
+    )
+    if user_id:
+        q = q.where(Publication.user_id == user_id)
+    if not force:
+        q = q.where((Publication.metrics_updated_at.is_(None)) | (Publication.metrics_updated_at <= now - every))
+    return list((await s.scalars(q.order_by(Publication.published_at.desc()).limit(200))).all())
+
+
+async def analytics_publications(
+    s: AsyncSession, user_id: str, since: datetime, brand_id: str | None = None, platform: str | None = None
+) -> list[Publication]:
+    q = _with_context(
+        select(Publication).where(
+            Publication.user_id == user_id, Publication.status == "published", Publication.published_at >= since
+        )
+    )
+    if platform:
+        q = q.where(Publication.platform == platform)
+    if brand_id:
+        q = q.join(Draft).join(PlatformRun).join(Run).where(Run.brand_id == brand_id)
+    return list((await s.scalars(q.order_by(Publication.published_at.desc()))).all())
