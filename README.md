@@ -4,7 +4,7 @@ An AI agent that builds your personal brand across **LinkedIn, X, Threads, Insta
 It learns your brand, researches a timely angle on the web, writes platform-native content in your voice,
 and has a reviewer agent check every draft (sending weak ones back for a rewrite).
 
-**Stack:** LangGraph · LangChain · Gemini · Tavily · FastAPI (SSE) · SQLAlchemy 2 + Alembic (SQLite/Postgres) · Next.js 16 · Tailwind 4 · shadcn/ui · Framer Motion · TanStack Query
+**Stack:** LangGraph · LangChain · Gemini · Tavily · FastAPI (SSE) · SQLAlchemy 2 + Alembic (SQLite/Postgres) · Next.js 16 · Tailwind 4 · shadcn/ui · Framer Motion · TanStack Query · Docker · Cloud Run · Vercel · LangSmith
 
 ## How it works
 
@@ -48,11 +48,20 @@ cp .env.example .env        # add GOOGLE_API_KEY and TAVILY_API_KEY, or set DEMO
 
 # Frontend (Next.js)
 cd frontend && npm install
-cp .env.example .env.local  # NEXT_PUBLIC_API_URL if the API isn't on :8000
+cp .env.example .env.local  # API_ORIGIN if the API isn't on :8000
 npm run dev                 # http://localhost:3000  (landing page; the app is at /studio)
 ```
 
 `DEMO_MODE=true` returns canned content with realistic streaming, so you can work on the UI without API keys or credits.
+
+The web app proxies `/api/*` to the API (`API_ORIGIN`), so the browser only ever talks to one origin and the
+session cookie is first-party everywhere.
+
+Or run everything in Docker (Postgres, migrations, API, web):
+
+```bash
+DEMO_MODE=true docker compose up -d --build   # http://localhost:3000
+```
 
 ### Publishing to your accounts
 
@@ -78,7 +87,7 @@ Paused-run checkpoints go to `brandbot_checkpoints.db` (with Postgres, LangGraph
 For Postgres:
 
 ```bash
-docker compose up -d                       # local Postgres 17
+docker compose up -d postgres              # local Postgres 17
 export DATABASE_URL=postgresql+asyncpg://brandbot:brandbot@localhost:5432/brandbot
 export DB_AUTO_CREATE=false
 .venv/bin/alembic upgrade head             # apply migrations
@@ -92,6 +101,8 @@ A test fails if the models and migrations drift apart.
 | Method | Path | |
 |---|---|---|
 | GET | `/health` | Liveness |
+| GET | `/ready` | Readiness: the database answers (503 if not) |
+| POST | `/internal/tick` | For a cron (`Authorization: Bearer $CRON_SECRET`): publish due posts, refresh stats |
 | POST | `/auth/register`, `/auth/login`, `/auth/logout` | Accounts (session cookie) |
 | GET | `/auth/me` | The signed-in user |
 | GET | `/connections` | Connected accounts and which platforms this server can connect |
@@ -127,14 +138,68 @@ A test fails if the models and migrations drift apart.
 | GET | `/media/{path}` | Serve a stored image |
 | POST | `/runs`, `/runs/stream` | Stateless: generate without saving |
 
-Interactive docs: http://localhost:8000/docs. Everything except `/health`, `/platforms`, `/auth/*`, the OAuth callback and `/media` needs a signed-in session.
+Interactive docs: http://localhost:8000/docs (off in production). Everything except `/health`, `/ready`, `/platforms`,
+`/auth/*`, the OAuth callback and `/media` needs a signed-in session.
+
+AI endpoints are rate limited per user (runs, rewrites, images), and sign-in / sign-up per IP. Over the limit the API
+answers `429` with a `Retry-After` header and says when to try again. Every response carries an `X-Request-ID`,
+which is also on every log line.
+
+## Deploy
+
+The API runs on **Google Cloud Run**, the web app on **Vercel**, data in any managed **Postgres**, images in a
+**Cloud Storage** bucket. Cloud Run scales to zero, so a **Cloud Scheduler** job calls `/internal/tick` every minute
+to publish scheduled posts and refresh stats (the in-process scheduler is off there).
+
+```
+browser ──> Vercel (Next.js) ── /api/* ──> Cloud Run (FastAPI) ──> Postgres
+                                                 │  └─────────────> Cloud Storage (images)
+Cloud Scheduler ── every minute ── /internal/tick┘
+```
+
+1. **Postgres.** Cloud SQL, Neon or Supabase. Keep its `postgresql+asyncpg://...` URL handy.
+2. **API.** One script creates the bucket, service account and secrets, builds the image, runs migrations as a
+   Cloud Run job, deploys the service and creates the scheduler job:
+
+   ```bash
+   PROJECT_ID=my-project WEB_URL=https://brandbot.vercel.app \
+   DATABASE_URL=postgresql+asyncpg://... GOOGLE_API_KEY=... TAVILY_API_KEY=... \
+   LANGSMITH_API_KEY=...   # optional: tracing
+   ./deploy/cloudrun.sh
+   ```
+
+   Secrets go to Secret Manager on the first run (`SECRET_KEY` and `CRON_SECRET` are generated). Re-run the
+   script to ship a new version. It prints the API URL.
+3. **Web.** Import the repo in Vercel with **Root Directory** `frontend` and set `API_ORIGIN` to the API URL.
+   The build stops with a clear message if it's missing.
+4. **Platforms.** Point each developer app's callback to `https://<web app>/api/connections/<platform>/callback`.
+
+With `ENVIRONMENT=production` the API refuses to start with a default `SECRET_KEY`, insecure cookies or demo mode,
+and logs a warning for SQLite, local media storage, a missing cron secret or a localhost public URL.
+
+**Notes**
+- AI runs stream for a few minutes, so the service runs with a 60-minute request timeout. Vercel's proxy waits up to
+  120 seconds for the first byte, and the stream sends its first event right away (then a keep-alive every 15s).
+  If you prefer to skip the proxy, give the web app and API one parent domain (`app.example.com`,
+  `api.example.com`) and set `NEXT_PUBLIC_API_URL` to the API.
+- `TRUSTED_PROXY_HOPS=2` (Vercel, then Google's front end) lets per-IP limits see the visitor's address.
+- Self-hosting: the two Dockerfiles (`Dockerfile` for the API, `frontend/Dockerfile` for the web app) run anywhere.
+  `docker-compose.yml` is a working single-machine setup; put an HTTPS proxy in front and set
+  `ENVIRONMENT=production`, `COOKIE_SECURE=true` and a real `SECRET_KEY`.
+
+**Tracing.** With `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY`, every run, rewrite and image appears in
+LangSmith with its token use, cost and latency, named ("brand run", "rewrite", "image") and tagged with the
+platforms, plus the user, brand, run and request ids in metadata to filter by.
 
 ## Tests
 
 ```bash
 .venv/bin/python -m pytest        # offline: uses fake LLM and search
-cd frontend && npm run lint && npm run build
+cd frontend && npm run lint && npm run typecheck && npm run build
 ```
+
+CI (GitHub Actions) runs the tests, applies and rolls back the migrations on a real Postgres, lints and builds the
+web app, and builds both Docker images.
 
 ## Roadmap
 
@@ -147,7 +212,7 @@ cd frontend && npm run lint && npm run build
 - [x] **7. Visuals + new UI**: art-directed Gemini images for every platform; web app rebuilt in Next.js with Framer Motion
 - [x] **8. Accounts and publishing**: sign-in, OAuth for LinkedIn / X / Threads / Instagram, publish now or on a schedule
 - [x] **9. Calendar and analytics**: drag-to-reschedule calendar, stats from the platforms or typed in, analytics dashboard, best posts and topics feed future runs
-- [ ] **10. Deploy**: Docker, Cloud Run + Vercel, LangSmith tracing, rate limits
+- [x] **10. Deploy**: Docker images and Compose, Cloud Run + Vercel with Cloud Storage and Cloud Scheduler, LangSmith tracing, shared rate limits, CI
 
 Medium no longer issues API tokens for new integrations, so Medium stays "export Markdown and import".
 YouTube Shorts produces scripts; uploading needs a rendered video file.
