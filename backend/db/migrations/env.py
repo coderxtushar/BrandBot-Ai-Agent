@@ -34,6 +34,22 @@ config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%"
 # ... etc.
 
 
+def include_object(obj, name, type_, reflected, compare_to):
+    """Ignore tables we don't own (e.g. LangGraph checkpoint tables sharing the Postgres database)."""
+    if type_ == "table" and reflected and compare_to is None:
+        return False
+    return True
+
+
+def render_item(type_, obj, autogen_context):
+    """Render custom column types as plain SQLAlchemy types so migrations never import app code."""
+    from backend.db.models import UTCDateTime
+
+    if type_ == "type" and isinstance(obj, UTCDateTime):
+        return "sa.DateTime(timezone=True)"
+    return False
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -52,6 +68,8 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
+        render_item=render_item,
     )
 
     with context.begin_transaction():
@@ -64,6 +82,8 @@ def do_run_migrations(connection: Connection) -> None:
         target_metadata=target_metadata,
         render_as_batch=connection.dialect.name == "sqlite",  # SQLite needs batch mode for ALTERs
         compare_type=True,
+        include_object=include_object,
+        render_item=render_item,
     )
 
     with context.begin_transaction():

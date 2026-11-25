@@ -1,11 +1,12 @@
 """Database tables.
 
-brands ─< runs ─< platform_results ─< drafts
+brands ─< runs ─< platform_results ─< drafts ─< draft_versions
 
 - A brand holds the user's raw input and the generated (or hand-edited) brand profile.
 - A run is one generation request: platforms, topic, the plan, sources, and a profile snapshot.
 - A platform_result is one platform's outcome inside a run (review, attempts, error).
 - A draft is one variant of content for that platform; drafts are what users edit and approve.
+- A draft_version is a snapshot of a draft after each change, for history and undo.
 """
 
 import uuid
@@ -126,6 +127,28 @@ class Draft(TimestampMixin, Base):
     position: Mapped[int] = mapped_column(Integer, default=0)
     content: Mapped[dict] = mapped_column(JSONType)
     text: Mapped[str] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft|approved|rejected (step 6)
+    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft|approved|rejected
+    review: Mapped[dict | None] = mapped_column(JSONType, nullable=True)  # set when this draft alone is re-reviewed
 
     platform_result: Mapped[PlatformRun] = relationship(back_populates="drafts")
+    # Never loaded implicitly (history pages would otherwise pull every version). Query explicitly.
+    versions: Mapped[list["DraftVersion"]] = relationship(
+        back_populates="draft", cascade="all, delete-orphan", passive_deletes=True, lazy="raise_on_sql"
+    )
+
+
+class DraftVersion(Base):
+    """Every state a draft has been in, newest last. The latest one equals the draft's current content."""
+
+    __tablename__ = "draft_versions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    draft_id: Mapped[str] = mapped_column(ForeignKey("drafts.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(20))  # generated|edited|rewrite|regenerate|restored
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content: Mapped[dict] = mapped_column(JSONType)
+    text: Mapped[str] = mapped_column(Text)
+    review: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+    draft: Mapped[Draft] = relationship(back_populates="versions")
