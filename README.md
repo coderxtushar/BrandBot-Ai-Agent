@@ -157,7 +157,8 @@ browser ──> Vercel (Next.js) ── /api/* ──> Cloud Run (FastAPI) ─�
 Cloud Scheduler ── every minute ── /internal/tick┘
 ```
 
-1. **Postgres.** Cloud SQL, Neon or Supabase. Keep its `postgresql+asyncpg://...` URL handy.
+1. **Postgres.** Cloud SQL, Neon or Supabase. The URL works as the host prints it (`postgres://...?sslmode=require`).
+   On Neon, turn connection pooling off and use the direct connection string.
 2. **API.** One script creates the bucket, service account and secrets, builds the image, runs migrations as a
    Cloud Run job, deploys the service and creates the scheduler job:
 
@@ -168,7 +169,8 @@ Cloud Scheduler ── every minute ── /internal/tick┘
    ./deploy/cloudrun.sh
    ```
 
-   Secrets go to Secret Manager on the first run (`SECRET_KEY` and `CRON_SECRET` are generated). Re-run the
+   Or copy `deploy/secrets.env.example` to `deploy/secrets.env` (git ignores it), fill it in and run the script
+   with no variables. Secrets go to Secret Manager on the first run (`SECRET_KEY` and `CRON_SECRET` are generated). Re-run the
    script to ship a new version. It prints the API URL.
 3. **Web.** Import the repo in Vercel with **Root Directory** `frontend` and set `API_ORIGIN` to the API URL.
    The build stops with a clear message if it's missing.

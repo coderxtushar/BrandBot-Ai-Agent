@@ -17,6 +17,18 @@
 #   DATABASE_URL=postgresql+asyncpg://user:pass@/brandbot?host=/cloudsql/project:region:instance
 set -euo pipefail
 
+# Settings and keys can also live in deploy/secrets.env (see secrets.env.example; git ignores it).
+SECRETS_FILE="$(dirname "$0")/secrets.env"
+if [[ -f "$SECRETS_FILE" ]]; then
+  # Read KEY=value lines literally (not as shell code), so URLs with & or ? need no quoting.
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*([A-Z_][A-Z0-9_]*)=(.*)$ ]] || continue
+    key="${BASH_REMATCH[1]}" value="${BASH_REMATCH[2]}"
+    value="${value%$'\r'}"; value="${value#[\"\']}"; value="${value%[\"\']}"
+    [[ -z "${!key:-}" ]] && export "$key=$value"  # variables already set in the shell win
+  done <"$SECRETS_FILE"
+fi
+
 : "${PROJECT_ID:?Set PROJECT_ID}"
 : "${WEB_URL:?Set WEB_URL, where the web app runs, e.g. https://brandbot.vercel.app}"
 REGION="${REGION:-us-central1}"
