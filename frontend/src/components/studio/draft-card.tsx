@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Copy, History, ImagePlus, Pencil, Sparkles, ThumbsDown, ThumbsUp, TriangleAlert, type LucideIcon } from "lucide-react";
+import Link from "next/link";
+import { CalendarClock, Copy, ExternalLink, History, ImagePlus, Pencil, Send, Sparkles, ThumbsDown, ThumbsUp, TriangleAlert, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,10 +11,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useDraftCache } from "@/hooks/use-studio-data";
 import { api } from "@/lib/api";
 import { REWRITE_PRESETS, platform as platformMeta } from "@/lib/platforms";
-import type { Content, DraftRef, DraftStatus, PlatformId, RewritePreset } from "@/lib/types";
+import { formatWhen } from "@/lib/time";
+import type { Content, DraftRef, DraftStatus, PlatformId, Publication, RewritePreset } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { DraftEditor } from "./draft-editor";
 import { Preview } from "./previews";
+import { PUBLISHABLE, PublishDialog } from "./publish-dialog";
 import { VersionsSheet } from "./versions-sheet";
 import { Visuals } from "./visuals";
 
@@ -86,6 +89,49 @@ function Tool({
   );
 }
 
+/** Where this draft has gone, or will go. */
+function PublicationChips({ pubs }: { pubs: Publication[] }) {
+  if (!pubs?.length) return null;
+  return (
+    <ul className="mb-4 flex flex-wrap gap-2">
+      {pubs.slice(0, 4).map((p) => {
+        const cls =
+          p.status === "published"
+            ? "bg-riso-green/12 text-riso-green"
+            : p.status === "failed"
+              ? "bg-destructive/10 text-destructive"
+              : p.status === "cancelled"
+                ? "bg-muted text-muted-foreground line-through"
+                : "bg-riso-blue/10 text-primary";
+        const label =
+          p.status === "published"
+            ? "Published"
+            : p.status === "scheduled"
+              ? `Scheduled for ${formatWhen(p.scheduled_at)}`
+              : p.status === "publishing"
+                ? "Publishing now"
+                : p.status === "failed"
+                  ? "Failed to publish"
+                  : "Cancelled";
+        return (
+          <motion.li key={p.id} initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
+            {p.status === "published" && p.external_url ? (
+              <a href={p.external_url} target="_blank" rel="noreferrer" className={cn("inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium", cls)}>
+                {label} <ExternalLink className="size-3" />
+              </a>
+            ) : (
+              <Link href="/studio/scheduled" title={p.error ?? undefined} className={cn("inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium", cls)}>
+                {p.status === "scheduled" && <CalendarClock className="size-3" />}
+                {label}
+              </Link>
+            )}
+          </motion.li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function RewritePanel({ onRewrite, busy }: { onRewrite: (b: { preset?: RewritePreset; instruction?: string; fresh?: boolean }) => void; busy: boolean }) {
   const [instruction, setInstruction] = useState("");
   return (
@@ -146,6 +192,8 @@ export function DraftCard({
   const [mode, setMode] = useState<Mode>(null);
   const [rewriting, setRewriting] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const publishable = PUBLISHABLE.includes(platform);
   const toggle = (m: Mode) => setMode((cur) => (cur === m ? null : m));
   const meta = platformMeta(platform);
 
@@ -209,8 +257,13 @@ export function DraftCard({
           <Tool icon={ImagePlus} label="Visuals" active={mode === "visuals"} onClick={() => toggle("visuals")} />
           <Tool icon={History} label="History" onClick={() => setHistoryOpen(true)} />
           <Tool icon={Copy} label="Copy" onClick={copy} />
+          {publishable && (
+            <Tool icon={Send} label="Publish" onClick={() => setPublishOpen(true)} className="border-riso-blue/40 text-primary" />
+          )}
         </div>
       </header>
+
+      <PublicationChips pubs={draft.publications} />
 
       {draft.lint.length > 0 && (
         <div role="status" className="mb-4 flex gap-2 rounded-xl bg-riso-sun/25 p-3 text-sm">
@@ -281,6 +334,15 @@ export function DraftCard({
       </div>
 
       <VersionsSheet draftId={draft.id} open={historyOpen} onOpenChange={setHistoryOpen} onRestore={restore} />
+      {publishable && (
+        <PublishDialog
+          open={publishOpen}
+          onOpenChange={setPublishOpen}
+          platform={platform}
+          draft={draft}
+          onPublished={(p) => cache.addPublication(platform, index, p)}
+        />
+      )}
     </motion.section>
   );
 }
