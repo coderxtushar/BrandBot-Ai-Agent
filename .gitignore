@@ -14,3 +14,4 @@ media/
 /deploy/*.env
 .vercel
 .env.local
+/credentials.local.txt
