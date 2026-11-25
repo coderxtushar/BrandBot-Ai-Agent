@@ -254,6 +254,17 @@ export function Composer({
         )}
         <label className="flex items-start justify-between gap-4">
           <span className="text-sm">
+            Learn from my best posts
+            <span className="block text-xs text-muted-foreground">Writers see what performed well for this brand before.</span>
+          </span>
+          <Switch
+            checked={value.settings.learn_from_results}
+            onCheckedChange={(v) => setSettings({ learn_from_results: v })}
+            aria-label="Learn from my best posts"
+          />
+        </label>
+        <label className="flex items-start justify-between gap-4">
+          <span className="text-sm">
             Review the plan before writing
             <span className="block text-xs text-muted-foreground">Pauses after research so you can adjust the angle.</span>
           </span>

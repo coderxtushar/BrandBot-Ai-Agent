@@ -34,7 +34,13 @@ import { StudioHeader } from "./studio-header";
 
 const NEW = "__new__";
 const EMPTY_INPUT: BrandInput = { target_audience: "", expertise: "", tone_of_voice: "", content_pillars: "", past_posts: "" };
-const DEFAULT_SETTINGS: RunSettings = { platforms: ["linkedin", "x"], topic: "", variants: 1, review_plan: false };
+const DEFAULT_SETTINGS: RunSettings = {
+  platforms: ["linkedin", "x"],
+  topic: "",
+  variants: 1,
+  review_plan: false,
+  learn_from_results: true,
+};
 
 type BrandDraft = Pick<ComposerValue, "name" | "brand">;
 type MobileTab = "write" | "results" | "history";

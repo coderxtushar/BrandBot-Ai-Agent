@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { CalendarClock, LogOut, PenLine, Plug } from "lucide-react";
+import { BarChart3, CalendarClock, CalendarDays, LogOut, PenLine, Plug } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,9 @@ import { cn } from "@/lib/utils";
 
 export const STUDIO_NAV = [
   { href: "/studio", label: "Write", icon: PenLine },
+  { href: "/studio/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/studio/scheduled", label: "Scheduled", icon: CalendarClock },
+  { href: "/studio/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/studio/connections", label: "Connections", icon: Plug },
 ] as const;
 

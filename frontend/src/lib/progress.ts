@@ -15,6 +15,8 @@ export interface Progress {
   angle?: string;
   queries?: string[];
   sourceCount?: number;
+  /** Platforms whose past best posts are guiding this run. */
+  learnedFrom?: PlatformId[];
   platforms: Partial<Record<PlatformId, PlatformProgress>>;
 }
 
@@ -55,6 +57,8 @@ export function progressReducer(state: Progress, action: ProgressAction): Progre
       return { ...state, profile: status };
     case "planning":
       return { ...state, planning: status, angle: ev.angle ?? state.angle };
+    case "learning":
+      return { ...state, learnedFrom: (ev as ProgressEvent & { platforms?: PlatformId[] }).platforms ?? [] };
     case "research":
       return { ...state, research: status, queries: ev.queries ?? state.queries, sourceCount: ev.count ?? state.sourceCount };
     default:

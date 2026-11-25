@@ -135,6 +135,15 @@ export function RunProgress({ progress, onStop }: { progress: Progress; onStop: 
       </div>
 
       <ol className="space-y-5">
+        {progress.learnedFrom && (
+          <Step status="done" title="Learning from your best posts">
+            <p className="text-sm text-muted-foreground">
+              {progress.learnedFrom.length
+                ? `Your top ${progress.learnedFrom.map((p) => platform(p).short).join(", ")} posts are guiding the writers.`
+                : "Your best topics are guiding today's angle."}
+            </p>
+          </Step>
+        )}
         <Step status={progress.profile} title={progress.profile === "reused" ? "Using your saved brand profile" : "Reading your brand"} />
         <Step status={progress.planning} title="Choosing today's angle">
           {progress.angle && <Angle text={progress.angle} />}
