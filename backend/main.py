@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend.agents.checkpoint import open_checkpointer
-from backend.api import brands, runs
+from backend.api import brands, drafts, runs
 from backend.config import get_settings
 from backend.db.session import get_database
 from backend.platforms import PLATFORMS
@@ -47,6 +47,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(brands.router)
+app.include_router(drafts.router)
 app.include_router(runs.router)
 
 
