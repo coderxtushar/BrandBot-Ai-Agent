@@ -37,6 +37,8 @@ class PlatformSpec:
     style_guide: str
     lint: Callable[[BaseModel], list[str]]
     render: Callable[[BaseModel], str]
+    # The text actually sent when publishing: one string per post (several for threads).
+    post_parts: Callable[[BaseModel], list[str]] = lambda c: []
 
     @cached_property
     def drafts_model(self) -> type[BaseModel]:
@@ -82,6 +84,7 @@ LINKEDIN = PlatformSpec(
     ),
     lint=_lint_linkedin,
     render=_render_linkedin,
+    post_parts=lambda p: [_render_linkedin(p)],
 )
 
 
@@ -89,14 +92,16 @@ LINKEDIN = PlatformSpec(
 # X (Twitter)
 # ---------------------------------------------------------------------------
 
-def _render_x(t: XThread) -> str:
+def _x_parts(t: XThread) -> list[str]:
     tweets = list(t.tweets)
     if t.hashtags and tweets:
         tweets[-1] = f"{tweets[-1]} {_tags(t.hashtags)}"
     n = len(tweets)
-    if n == 1:
-        return tweets[0]
-    return "\n\n".join(f"{i}/{n} {tw}" if i > 1 else tw for i, tw in enumerate(tweets, 1))
+    return [f"{i}/{n} {tw}" if i > 1 else tw for i, tw in enumerate(tweets, 1)]
+
+
+def _render_x(t: XThread) -> str:
+    return "\n\n".join(_x_parts(t))
 
 
 def _lint_x(t: XThread) -> list[str]:
@@ -128,12 +133,21 @@ X = PlatformSpec(
     ),
     lint=_lint_x,
     render=_render_x,
+    post_parts=_x_parts,
 )
 
 
 # ---------------------------------------------------------------------------
 # Threads (Meta)
 # ---------------------------------------------------------------------------
+
+def _threads_parts(t: ThreadsPost) -> list[str]:
+    posts = list(t.posts)
+    tag = f" #{t.topic_tag.lstrip('#').replace(' ', '')}" if t.topic_tag else ""
+    if tag and posts and len(posts[-1]) + len(tag) <= 500:
+        posts[-1] += tag
+    return posts
+
 
 def _render_threads(t: ThreadsPost) -> str:
     text = "\n\n---\n\n".join(t.posts)
@@ -164,12 +178,17 @@ THREADS = PlatformSpec(
     ),
     lint=_lint_threads,
     render=_render_threads,
+    post_parts=_threads_parts,
 )
 
 
 # ---------------------------------------------------------------------------
 # Instagram
 # ---------------------------------------------------------------------------
+
+def _instagram_caption(p: InstagramPost) -> list[str]:
+    return [f"{p.caption}\n\n{_tags(p.hashtags)}".strip()]
+
 
 def _render_instagram(p: InstagramPost) -> str:
     slides = "\n".join(f"Slide {i}: {s.headline} — {s.text}" for i, s in enumerate(p.slides, 1))
@@ -205,6 +224,7 @@ INSTAGRAM = PlatformSpec(
     ),
     lint=_lint_instagram,
     render=_render_instagram,
+    post_parts=_instagram_caption,
 )
 
 
