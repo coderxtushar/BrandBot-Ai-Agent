@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from backend.api.deps import publisher_dep
 from backend.config import get_settings
 from backend.db.session import Database, get_database
-from backend.ratelimit import purge_expired
+from backend.ratelimit import ip_of, purge_expired
 
 router = APIRouter(prefix="/internal", tags=["internal"], include_in_schema=False)
 log = logging.getLogger("brandbot")
@@ -39,3 +39,17 @@ async def tick(publisher=Depends(publisher_dep), db: Database = Depends(get_data
     if published or stats_updated or stats_failed:
         log.info("Tick: %s", result)
     return result
+
+
+@router.get("/client-ip", dependencies=[Depends(require_cron)])
+async def client_ip_check(request: Request):
+    """What the proxies in front of us send, to set TRUSTED_PROXY_HOPS: call it through the web app's /api and
+    pick the hop count that makes client_ip your own address."""
+    from backend.config import get_settings
+
+    return {
+        "x_forwarded_for": request.headers.get("x-forwarded-for"),
+        "peer": request.client.host if request.client else None,
+        "trusted_proxy_hops": get_settings().trusted_proxy_hops,
+        "client_ip": ip_of(request),
+    }

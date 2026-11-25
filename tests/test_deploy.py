@@ -168,6 +168,13 @@ def test_tick_publishes_due_posts(client, limits, platforms):
     assert client.post("/internal/tick", headers={"Authorization": "Bearer s3cret"}).json()["published"] == 0
 
 
+def test_client_ip_check_shows_the_forwarded_chain(client, limits):
+    assert client.get("/internal/client-ip").status_code == 404
+    limits(cron_secret="s3cret", trusted_proxy_hops=1)
+    res = client.get("/internal/client-ip", headers={"Authorization": "Bearer s3cret", "X-Forwarded-For": "9.9.9.9, 1.2.3.4"})
+    assert res.json() == {"x_forwarded_for": "9.9.9.9, 1.2.3.4", "peer": "testclient", "trusted_proxy_hops": 1, "client_ip": "1.2.3.4"}
+
+
 # --- health and request ids -------------------------------------------------------
 
 
