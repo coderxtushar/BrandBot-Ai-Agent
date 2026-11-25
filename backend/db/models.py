@@ -2,6 +2,7 @@
 
 users ─< sessions
 users ─< platform_accounts ─< publications >─ drafts
+                              publications ─< post_metrics
 users ─< brands
 
 brands ─< runs ─< platform_results ─< drafts ─< draft_versions
@@ -135,6 +136,10 @@ class Publication(TimestampMixin, Base):
     external_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
+    # analytics: the newest numbers live here; every reading is also kept in post_metrics
+    latest_metrics: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    metrics_updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    metrics_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     draft: Mapped["Draft"] = relationship(back_populates="publications")
     account: Mapped[PlatformAccount | None] = relationship(lazy="selectin")
@@ -269,3 +274,21 @@ class DraftImage(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     draft: Mapped[Draft] = relationship(back_populates="images")
+
+
+class PostMetric(Base):
+    """One reading of a published post's numbers (from the platform, or typed in by the user)."""
+
+    __tablename__ = "post_metrics"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    publication_id: Mapped[str] = mapped_column(ForeignKey("publications.id", ondelete="CASCADE"), index=True)
+    captured_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    source: Mapped[str] = mapped_column(String(10), default="api")  # api | manual
+    views: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reach: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    likes: Mapped[int] = mapped_column(Integer, default=0)
+    comments: Mapped[int] = mapped_column(Integer, default=0)
+    shares: Mapped[int] = mapped_column(Integer, default=0)
+    saves: Mapped[int] = mapped_column(Integer, default=0)
+    raw: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
