@@ -1,6 +1,6 @@
 """Publishing drafts now or on a schedule."""
 
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -96,10 +96,13 @@ async def publish_draft(
 async def list_publications(
     status: list[Literal["scheduled", "publishing", "published", "failed", "cancelled"]] | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
+    start: datetime | None = Query(default=None, description="Only posts scheduled at or after this time"),
+    end: datetime | None = Query(default=None, description="Only posts scheduled before this time"),
     s: AsyncSession = Depends(get_session),
     user: User = Depends(current_user),
 ):
-    return [_item(p) for p in await acc.list_publications(s, user.id, status, limit)]
+    start, end = (_when(start) if start else None), (_when(end) if end else None)
+    return [_item(p) for p in await acc.list_publications(s, user.id, status, limit, start, end)]
 
 
 async def _pub_or_404(pub_id: str, s: AsyncSession = Depends(get_session), user: User = Depends(current_user)):

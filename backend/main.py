@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend.agents.checkpoint import open_checkpointer
-from backend.api import auth, brands, connections, drafts, images, publications, runs
+from backend.api import analytics, auth, brands, connections, drafts, images, publications, runs
 from backend.api.deps import clients_dep, storage_dep
 from backend.config import get_settings
 from backend.db.session import get_database
@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Brand Bot API",
     description="Multi-platform personal branding agent: brand profile, research, and platform-native content.",
-    version="0.6.0",
+    version="0.7.0",
     lifespan=lifespan,
 )
 
@@ -74,6 +74,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(connections.router)
 app.include_router(publications.router)
+app.include_router(analytics.router)
 app.include_router(brands.router)
 app.include_router(drafts.router)
 app.include_router(images.router)
