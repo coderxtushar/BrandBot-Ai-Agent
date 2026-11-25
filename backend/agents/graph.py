@@ -3,11 +3,16 @@
     START
       │
       ▼
-   profile ──► planner ──► research ──┬── Send ─► platform[linkedin] ─┐
-   (skipped if a                      ├── Send ─► platform[x]        ─┼──► END
-    profile is supplied)              └── Send ─► platform[...]      ─┘
+   profile ──► planner ──► research ──► plan_review ──┬── Send ─► platform[linkedin] ─┐
+   (skipped if a                        (optional       ├── Send ─► platform[x]        ─┼──► END
+    profile is supplied)                 interrupt)     └── Send ─► platform[...]      ─┘
 
-Each `platform` branch is its own subgraph that runs in parallel:
+plan_review pauses the run with `interrupt()` when the author asked to approve the angle and
+sources first. The run is checkpointed, so it can be resumed later (even after a restart)
+with `Command(resume=PlanDecision)`.
+
+Each `platform` branch is its own subgraph that runs in parallel. The same subgraph rewrites a
+single saved draft on request (input `seed` + `instruction`):
 
     write ──► review ──► approved / out of attempts? ──► finalize
       ▲                      │ no
@@ -20,7 +25,7 @@ from typing import Annotated, TypedDict
 
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Send
+from langgraph.types import Send, interrupt
 
 from backend.agents import prompts
 from backend.platforms import get_spec
@@ -28,6 +33,7 @@ from backend.schemas import (
     BrandInput,
     BrandProfile,
     ContentPlan,
+    PlanDecision,
     PlatformId,
     PlatformResult,
     Review,
@@ -56,6 +62,8 @@ class RunState(TypedDict, total=False):
     platforms: list[PlatformId]
     topic: str
     variants: int
+    review_plan: bool
+    guidance: str
     brand_profile: BrandProfile | None
     plan: ContentPlan
     sources: list[Source]
@@ -70,6 +78,11 @@ class PlatformState(TypedDict, total=False):
     sources: list[Source]
     variants: int
     past_posts: str
+    guidance: str
+    # single-draft rewrite (optional)
+    seed: dict | None
+    instruction: str
+    fresh: bool
     # working state
     drafts: list[dict]
     lint_issues: list[str]
@@ -96,6 +109,16 @@ def build_platform_graph(llm: LLMClient, max_revisions: int):
         _emit({"stage": "revising" if is_revision else "writing", "platform": spec.id.value, "attempt": attempt})
 
         variants = min(state.get("variants", 1), spec.max_variants)
+        seed, instruction, fresh = state.get("seed"), state.get("instruction", ""), state.get("fresh", False)
+        guidance = state.get("guidance", "")
+        if fresh and instruction:
+            guidance = f"{guidance}\n{instruction}".strip()
+        if is_revision:
+            previous = {"items": state["drafts"]}
+        elif seed is not None and not fresh:
+            previous = {"items": [seed]}
+        else:
+            previous = None
         system, user = prompts.writer_prompts(
             spec,
             state["brand_profile"],
@@ -103,8 +126,10 @@ def build_platform_graph(llm: LLMClient, max_revisions: int):
             state.get("sources", []),
             variants,
             state.get("past_posts", ""),
-            previous={"items": state["drafts"]} if is_revision else None,
-            feedback=prompts.merge_feedback(state.get("lint_issues", []), state.get("review")),
+            previous=previous,
+            feedback=prompts.merge_feedback(state.get("lint_issues", []), state.get("review")) if is_revision else [],
+            guidance=guidance,
+            author_request=instruction if (seed is not None and not fresh) else "",
         )
         try:
             out = await llm.structured(spec.drafts_model, system, user, role="writer")
@@ -209,6 +234,24 @@ def build_graph(llm: LLMClient, searcher: Searcher, max_revisions: int = 2, chec
         _emit({"stage": "research", "status": "done", "count": len(sources)})
         return {"sources": sources}
 
+    async def plan_review(state: RunState):
+        if not state.get("review_plan"):
+            return {}
+        # Pauses the run here. Everything before this line re-runs on resume, so keep it side-effect free.
+        answer = interrupt({"plan": state["plan"].model_dump(), "sources": [s.model_dump() for s in state.get("sources", [])]})
+        decision = PlanDecision.model_validate(answer or {})
+        changes = {k: v.strip() for k in ("angle", "pillar") if (v := getattr(decision, k)) and v.strip()}
+        sources = state.get("sources", [])
+        if decision.source_urls is not None:
+            keep = set(decision.source_urls)
+            sources = [s for s in sources if s.url in keep]
+        _emit({"stage": "plan_review", "status": "done"})
+        return {
+            "plan": state["plan"].model_copy(update=changes),
+            "sources": sources,
+            "guidance": decision.guidance.strip(),
+        }
+
     def fan_out(state: RunState):
         return [
             Send(
@@ -220,6 +263,7 @@ def build_graph(llm: LLMClient, searcher: Searcher, max_revisions: int = 2, chec
                     "sources": state.get("sources", []),
                     "variants": state.get("variants", 1),
                     "past_posts": state["brand"].past_posts,
+                    "guidance": state.get("guidance", ""),
                 },
             )
             for p in dict.fromkeys(state["platforms"])  # de-dupe, keep order
@@ -229,22 +273,26 @@ def build_graph(llm: LLMClient, searcher: Searcher, max_revisions: int = 2, chec
     g.add_node("profile", profile)
     g.add_node("planner", planner)
     g.add_node("research", research)
+    g.add_node("plan_review", plan_review)
     g.add_node("platform", build_platform_graph(llm, max_revisions))
     g.add_edge(START, "profile")
     g.add_edge("profile", "planner")
     g.add_edge("planner", "research")
-    g.add_conditional_edges("research", fan_out, ["platform"])
+    g.add_edge("research", "plan_review")
+    g.add_conditional_edges("plan_review", fan_out, ["platform"])
     g.add_edge("platform", END)
     return g.compile(checkpointer=checkpointer)
 
 
-def initial_state(req) -> RunState:
+def initial_state(req, review_plan: bool = False) -> RunState:
     """Build graph input from a RunRequest."""
     state: RunState = {
         "brand": req.brand,
         "platforms": list(req.platforms),
         "topic": req.topic,
         "variants": req.variants,
+        "review_plan": review_plan,
+        "guidance": "",
         "results": [],
     }
     if req.brand_profile:
