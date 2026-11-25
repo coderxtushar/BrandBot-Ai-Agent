@@ -1,0 +1,8 @@
+# Vercel builds only frontend/ (the project's Root Directory). Upload nothing else from a CLI deploy,
+# in particular deploy/secrets.env and other local files.
+/*
+!/frontend
+/frontend/node_modules
+/frontend/.next
+/frontend/.env*
+/frontend/.vercel
