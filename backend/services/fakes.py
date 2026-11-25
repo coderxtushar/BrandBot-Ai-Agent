@@ -9,6 +9,7 @@ from backend.schemas import (
     BrandProfile,
     CarouselSlide,
     ContentPlan,
+    ImagePrompt,
     InstagramPost,
     LinkedInPost,
     MediumArticle,
@@ -29,6 +30,11 @@ SAMPLES = {
         voice=VoiceGuide(traits=["clear", "practical"], do=["use examples"], dont=["hype"]),
         pillars=["Data storytelling", "ML mistakes"],
         hashtags=["datascience", "analytics", "machinelearning"],
+        visual_style="Clean editorial photography, navy and warm amber accents",
+    ),
+    ImagePrompt: lambda: ImagePrompt(
+        prompt="Overhead shot of a tidy desk, laptop showing a clean chart, soft morning light",
+        alt_text="A laptop on a desk showing a chart in morning light",
     ),
     ContentPlan: lambda: ContentPlan(
         angle="Most ML projects fail because of the problem framing, not the model.",
