@@ -128,3 +128,16 @@ async def test_gemini_adapter_reports_blocked_prompt(monkeypatch):
     monkeypatch.setattr(gen._client.aio.models, "generate_content", fake_generate)
     with pytest.raises(RuntimeError, match="SAFETY"):
         await gen.generate("x", "1:1")
+
+
+@pytest.mark.parametrize(
+    "error, says",
+    [
+        ("429 RESOURCE_EXHAUSTED. Quota exceeded for metric: generate_content_free_tier_requests, limit: 0", "free tier"),
+        ("429 RESOURCE_EXHAUSTED. Quota exceeded for metric: generate_content_requests, limit: 10", "Try again in a minute"),
+    ],
+)
+def test_quota_errors_say_what_to_do(client, run, image_gen, error, says):
+    image_gen.fail = RuntimeError(error)
+    res = client.post(f"/drafts/{draft_id(run, 'x')}/images", json={})
+    assert res.status_code == 502 and says in res.json()["detail"] and "RESOURCE_EXHAUSTED" not in res.json()["detail"]

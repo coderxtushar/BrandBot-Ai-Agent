@@ -74,8 +74,8 @@ class FakeImageGenerator:
 
         if self.delay:
             await asyncio.sleep(self.delay)
-        if self.fail:
-            raise RuntimeError("image model unavailable")
+        if self.fail:  # True, or the exception to raise
+            raise self.fail if isinstance(self.fail, Exception) else RuntimeError("image model unavailable")
         self.prompts.append((prompt, aspect_ratio))
         w, h = (int(x) for x in aspect_ratio.split(":"))
         width, height = 1080, round(1080 * h / w)

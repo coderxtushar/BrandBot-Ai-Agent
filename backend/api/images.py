@@ -57,7 +57,7 @@ async def generate_image(
             image = await services.images.generate(brief.prompt, spec.image_aspect)
     except Exception as exc:
         log.exception("Image generation failed for draft %s", draft.id)
-        raise HTTPException(status_code=502, detail=f"Image generation failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=_failure_message(exc)) from exc
 
     key = await storage.save(image.data, image.mime)
     img = await repo.add_image(
@@ -105,3 +105,16 @@ async def media(key: str, storage=Depends(storage_dep)):
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
         },
     )
+
+
+def _failure_message(exc: Exception) -> str:
+    """Say what to do about the common Gemini failures instead of passing on Google's raw error."""
+    text = str(exc)
+    if "RESOURCE_EXHAUSTED" in text or "429" in text:
+        if "free_tier" in text and "limit: 0" in text:
+            return (
+                "Image generation isn't included in the Gemini API free tier. Turn on billing for the Google "
+                "project that owns GOOGLE_API_KEY (in AI Studio) to create images."
+            )
+        return "The image model is over its quota right now. Try again in a minute."
+    return f"Image generation failed: {text}"
