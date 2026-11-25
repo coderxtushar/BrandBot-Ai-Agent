@@ -3,15 +3,16 @@ import { CircleAlert, Square } from 'lucide-react';
 import BrandBar from './components/BrandBar';
 import BrandForm from './components/BrandForm';
 import History from './components/History';
+import PlanReview from './components/PlanReview';
 import ProfileEditor from './components/ProfileEditor';
 import Progress from './components/Progress';
 import Results from './components/Results';
-import { api, streamBrandRun } from './lib/api';
+import { api, streamBrandRun, streamResume } from './lib/api';
 import { EMPTY_BRAND_INPUT, NEW_BRAND, brandInput, sameInput } from './lib/brands';
 import { initialProgress, progressReducer } from './lib/progress';
 import { load, save } from './lib/storage';
 
-const DEFAULT_SETTINGS = { platforms: ['linkedin', 'x'], topic: '', variants: 1 };
+const DEFAULT_SETTINGS = { platforms: ['linkedin', 'x'], topic: '', variants: 1, review_plan: false };
 
 function initialForm() {
   const settings = { ...DEFAULT_SETTINGS, ...load('brandbot.settings', {}) };
@@ -29,6 +30,7 @@ export default function App() {
   const [runs, setRuns] = useState([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [paused, setPaused] = useState(null); // a run waiting for plan review
 
   const [progress, dispatch] = useReducer(progressReducer, initialProgress);
   const [status, setStatus] = useState('loading'); // loading | idle | running | error
@@ -42,8 +44,10 @@ export default function App() {
 
   // Run settings (platforms, topic, variants) are a per-browser convenience.
   useEffect(() => {
-    save('brandbot.settings', { platforms: form.platforms, topic: form.topic, variants: form.variants });
-  }, [form.platforms, form.topic, form.variants]);
+    save('brandbot.settings', {
+      platforms: form.platforms, topic: form.topic, variants: form.variants, review_plan: form.review_plan,
+    });
+  }, [form.platforms, form.topic, form.variants, form.review_plan]);
 
   const fail = (err) => {
     setError(err instanceof TypeError ? 'Could not reach the API. Is the backend running?' : err.message);
@@ -56,8 +60,10 @@ export default function App() {
       const list = await api.listRuns(brandId);
       setRuns(list);
       if (openLatest) {
-        const latest = list.find((r) => r.status === 'completed');
-        setResult(latest ? await api.getRun(latest.id) : null);
+        const latest = list.find((r) => r.status === 'completed' || r.status === 'awaiting_plan');
+        const detail = latest ? await api.getRun(latest.id) : null;
+        setPaused(detail?.status === 'awaiting_plan' ? detail : null);
+        setResult(detail?.status === 'completed' ? detail : null);
       }
     } finally {
       setRunsLoading(false);
@@ -70,6 +76,7 @@ export default function App() {
       save('brandbot.activeBrand', brand.id);
       setForm((f) => ({ ...f, name: brand.name, brand: brandInput(brand) }));
       setResult(null);
+      setPaused(null);
       setRuns([]);
       return loadRuns(brand.id, { openLatest: true });
     },
@@ -81,6 +88,7 @@ export default function App() {
     setForm((f) => ({ ...f, name: '', brand: { ...EMPTY_BRAND_INPUT } }));
     setRuns([]);
     setResult(null);
+    setPaused(null);
   };
 
   // Initial load.
@@ -138,38 +146,86 @@ export default function App() {
     return updated;
   };
 
-  const run = async () => {
+  /** Drive a streaming run (new or resumed) to its next stop: finished, paused, or failed. */
+  const drive = async (platforms, { resumed = false } = {}, start) => {
     const controller = new AbortController();
     abortRef.current = controller;
     setStatus('running');
     setError(null);
-    dispatch({ reset: true, platforms: form.platforms });
+    setPaused(null);
+    dispatch({ reset: true, platforms, resumed });
     let brandId = activeBrand?.id;
 
     try {
+      const { brandId: id, stream } = await start(controller.signal);
+      brandId = id;
+      const outcome = await stream;
+      if (outcome.type === 'awaiting') {
+        setPaused(outcome.run);
+        setResult(null);
+      } else {
+        setResult(outcome.run);
+      }
+      setStatus('idle');
+      setBrands(await api.listBrands()); // the run may have created/updated the profile
+      await loadRuns(id);
+    } catch (err) {
+      if (err.name === 'AbortError') setStatus('idle');
+      else fail(err);
+      if (brandId) loadRuns(brandId).catch(() => {});
+    }
+  };
+
+  const run = () =>
+    drive(form.platforms, {}, async (signal) => {
       const brand = await saveBrand();
-      brandId = brand.id;
-      const detail = await streamBrandRun(
+      const stream = streamBrandRun(
         brand.id,
         {
           platforms: form.platforms,
           topic: form.topic,
           variants: form.variants,
           regenerate_profile: !reuseProfile,
+          review_plan: form.review_plan,
         },
-        { onProgress: dispatch, signal: controller.signal },
+        { onProgress: dispatch, signal },
       );
-      setResult(detail);
-      setStatus('idle');
-      // The run may have created/updated the profile.
-      const fresh = await api.listBrands();
-      setBrands(fresh);
-      await loadRuns(brand.id);
+      return { brandId: brand.id, stream };
+    });
+
+  const resume = (decision) => {
+    const target = paused;
+    return drive(target.platforms, { resumed: true }, async (signal) => ({
+      brandId: target.brand_id,
+      stream: streamResume(target.id, decision, { onProgress: dispatch, signal }),
+    }));
+  };
+
+  const discardPaused = async () => {
+    if (!window.confirm('Discard this run? Nothing has been written yet.')) return;
+    try {
+      await api.cancelRun(paused.id);
+      setPaused(null);
+      await loadRuns(paused.brand_id);
     } catch (err) {
-      if (err.name === 'AbortError') setStatus('idle');
-      else fail(err);
-      if (brandId) loadRuns(brandId).catch(() => {});
+      fail(err);
     }
+  };
+
+  const onDraftUpdated = (platform, index, draft) => {
+    setResult((prev) => ({
+      ...prev,
+      results: prev.results.map((r) => {
+        if (r.platform !== platform) return r;
+        const swap = (list, value) => list.map((x, i) => (i === index ? value : x));
+        return {
+          ...r,
+          items: swap(r.items, draft.content),
+          text: swap(r.text, draft.text),
+          drafts: swap(r.drafts, { id: draft.id, status: draft.status, review: draft.review, lint: draft.lint }),
+        };
+      }),
+    }));
   };
 
   const saveProfile = async (profile) => {
@@ -180,7 +236,14 @@ export default function App() {
 
   const openRun = async (id) => {
     try {
-      setResult(await api.getRun(id));
+      const detail = await api.getRun(id);
+      if (detail.status === 'awaiting_plan') {
+        setPaused(detail);
+        setResult(null);
+      } else {
+        setPaused(null);
+        setResult(detail);
+      }
     } catch (err) {
       fail(err);
     }
@@ -192,6 +255,7 @@ export default function App() {
       await api.deleteRun(id);
       const rest = runs.filter((r) => r.id !== id);
       setRuns(rest);
+      if (paused?.id === id) setPaused(null);
       if (result?.id === id) {
         // Show the next most recent completed run instead of an empty panel.
         const next = rest.find((r) => r.status === 'completed');
@@ -238,7 +302,7 @@ export default function App() {
             <ProfileEditor key={activeBrand.id} profile={activeBrand.profile} onSave={saveProfile} disabled={running} />
           )}
           {activeBrand && (
-            <History runs={runs} activeId={result?.id} onOpen={openRun} onDelete={deleteRun} loading={runsLoading} />
+            <History runs={runs} activeId={paused?.id ?? result?.id} onOpen={openRun} onDelete={deleteRun} loading={runsLoading} />
           )}
         </aside>
 
@@ -259,9 +323,13 @@ export default function App() {
             </div>
           )}
 
-          {!running && result && <Results key={result.id} data={result} />}
+          {!running && paused && (
+            <PlanReview key={paused.id} run={paused} onContinue={resume} onCancel={discardPaused} busy={running} />
+          )}
 
-          {!running && !result && status !== 'error' && (
+          {!running && !paused && result && <Results key={result.id} data={result} onDraftUpdated={onDraftUpdated} />}
+
+          {!running && !paused && !result && status !== 'error' && (
             <div className="card flex min-h-80 flex-col items-center justify-center p-8 text-center">
               <p className="font-medium">{status === 'loading' ? 'Loading…' : 'Your content will appear here'}</p>
               {status !== 'loading' && (

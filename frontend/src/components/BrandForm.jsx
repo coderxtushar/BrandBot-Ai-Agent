@@ -159,6 +159,19 @@ export default function BrandForm({
         )}
       </div>
 
+      <label className="flex items-start gap-2 text-sm text-ink">
+        <input
+          type="checkbox"
+          className="mt-0.5 size-4 accent-accent"
+          checked={value.review_plan}
+          onChange={(e) => onChange({ ...value, review_plan: e.target.checked })}
+        />
+        <span>
+          Let me review the angle and sources before writing
+          <span className="hint block">The run pauses after research so you can adjust the plan.</span>
+        </span>
+      </label>
+
       <button type="submit" className="btn-primary w-full" disabled={!ready || isRunning}>
         <Sparkles className="size-4" />
         {isRunning ? 'Working…' : `Generate for ${value.platforms.length || 0} platform${value.platforms.length === 1 ? '' : 's'}`}

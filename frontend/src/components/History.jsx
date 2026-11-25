@@ -6,6 +6,7 @@ const short = (id) => PLATFORMS.find((p) => p.id === id)?.short ?? id;
 const STATUS = {
   completed: null,
   running: { text: 'Running', cls: 'bg-accent-soft text-accent' },
+  awaiting_plan: { text: 'Needs your review', cls: 'bg-amber-50 text-amber-800' },
   failed: { text: 'Failed', cls: 'bg-red-50 text-red-700' },
   cancelled: { text: 'Stopped', cls: 'bg-canvas text-muted' },
 };
@@ -33,7 +34,7 @@ export default function History({ runs, activeId, onOpen, onDelete, loading }) {
               <button
                 type="button"
                 onClick={() => onOpen(r.id)}
-                disabled={r.status !== 'completed'}
+                disabled={r.status !== 'completed' && r.status !== 'awaiting_plan'}
                 className={`w-full rounded-lg px-2 py-2 pr-9 text-left transition disabled:cursor-default ${
                   active ? 'bg-accent-soft' : 'hover:bg-canvas'
                 }`}
