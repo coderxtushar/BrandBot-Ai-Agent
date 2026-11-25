@@ -15,12 +15,25 @@ brands ─< runs ─< platform_results ─< drafts ─< draft_versions
 - A draft_version is a snapshot of a draft after each change, for history and undo.
 - A draft_image is a generated visual for a draft (file in media storage).
 - rate_limits holds request counters per fixed time window, shared by every API instance.
+- media_objects holds image bytes when MEDIA_BACKEND=db (hosts without a persistent disk or a bucket).
 """
 
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, TypeDecorator, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    TypeDecorator,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -303,3 +316,15 @@ class RateLimitCounter(Base):
     key: Mapped[str] = mapped_column(String(255), primary_key=True)
     count: Mapped[int] = mapped_column(Integer, default=0)
     expires_at: Mapped[int] = mapped_column(BigInteger, index=True)  # unix seconds when the window ends
+
+
+class MediaObject(Base):
+    """A stored file (generated image), keyed like 'images/<32 hex>.png'. Used when MEDIA_BACKEND=db."""
+
+    __tablename__ = "media_objects"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    mime: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(Integer)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)

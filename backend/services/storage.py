@@ -1,4 +1,5 @@
-"""Where generated media lives: local disk (development, a Docker volume) or Google Cloud Storage (Cloud Run).
+"""Where generated media lives: local disk (development, a Docker volume), Google Cloud Storage (Cloud Run) or
+the database (free hosts such as Render, whose disk is wiped on every restart).
 
 Both backends speak the same async interface: save(bytes) -> key, read(key) -> bytes | None, delete(key).
 Keys look like 'images/<32 hex>.png'. The API serves them at /media/<key>, so the bucket can stay private.
@@ -102,7 +103,52 @@ class GcsMediaStorage:
             log.warning("Could not delete media object %s", key, exc_info=True)
 
 
-def build_storage(settings) -> LocalMediaStorage | GcsMediaStorage:
+class DbMediaStorage:
+    """Image bytes in the media_objects table. No extra service to run; fine for a small app (a generated image
+    is 0.5-2 MB, and deleting a draft or brand deletes its images)."""
+
+    def __init__(self, database):
+        self.db = database
+
+    async def save(self, data: bytes, mime: str, folder: str = "images") -> str:
+        from backend.db.models import MediaObject
+
+        key = new_key(mime, folder)
+        async with self.db.sessions() as s:
+            s.add(MediaObject(key=key, mime=mime, size=len(data), data=data))
+            await s.commit()
+        return key
+
+    async def read(self, key: str) -> bytes | None:
+        if not valid_key(key):
+            return None
+        from sqlalchemy import select
+
+        from backend.db.models import MediaObject
+
+        async with self.db.sessions() as s:
+            return (await s.execute(select(MediaObject.data).where(MediaObject.key == key))).scalar_one_or_none()
+
+    async def delete(self, key: str) -> None:
+        if not valid_key(key):
+            return
+        from sqlalchemy import delete
+
+        from backend.db.models import MediaObject
+
+        try:
+            async with self.db.sessions() as s:
+                await s.execute(delete(MediaObject).where(MediaObject.key == key))
+                await s.commit()
+        except Exception:  # best effort, like the other backends
+            log.warning("Could not delete media object %s", key, exc_info=True)
+
+
+def build_storage(settings) -> LocalMediaStorage | GcsMediaStorage | DbMediaStorage:
+    if settings.media_backend == "db":
+        from backend.db.session import get_database
+
+        return DbMediaStorage(get_database())
     if settings.media_backend == "gcs":
         if not settings.gcs_bucket:
             raise RuntimeError("MEDIA_BACKEND=gcs needs GCS_BUCKET.")

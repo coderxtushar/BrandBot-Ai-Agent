@@ -65,8 +65,9 @@ class Settings(BaseSettings):
     )
 
     # --- Media ---
-    media_backend: Literal["local", "gcs"] = Field(
-        default="local", description="local disk (MEDIA_DIR) or a Google Cloud Storage bucket (GCS_BUCKET)"
+    media_backend: Literal["local", "gcs", "db"] = Field(
+        default="local",
+        description="local disk (MEDIA_DIR), a Google Cloud Storage bucket (GCS_BUCKET) or the database (db)",
     )
     media_dir: str = Field(default="media", description="Where generated images are stored (local backend)")
     gcs_bucket: str = Field(default="", description="Bucket for generated images (gcs backend)")
