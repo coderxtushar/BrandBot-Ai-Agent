@@ -1,12 +1,14 @@
 """Database tables.
 
 brands ─< runs ─< platform_results ─< drafts ─< draft_versions
+                                              └─< draft_images
 
 - A brand holds the user's raw input and the generated (or hand-edited) brand profile.
 - A run is one generation request: platforms, topic, the plan, sources, and a profile snapshot.
 - A platform_result is one platform's outcome inside a run (review, attempts, error).
 - A draft is one variant of content for that platform; drafts are what users edit and approve.
 - A draft_version is a snapshot of a draft after each change, for history and undo.
+- A draft_image is a generated visual for a draft (file in media storage).
 """
 
 import uuid
@@ -131,6 +133,13 @@ class Draft(TimestampMixin, Base):
     review: Mapped[dict | None] = mapped_column(JSONType, nullable=True)  # set when this draft alone is re-reviewed
 
     platform_result: Mapped[PlatformRun] = relationship(back_populates="drafts")
+    images: Mapped[list["DraftImage"]] = relationship(
+        back_populates="draft",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="DraftImage.created_at.desc()",
+        lazy="selectin",
+    )
     # Never loaded implicitly (history pages would otherwise pull every version). Query explicitly.
     versions: Mapped[list["DraftVersion"]] = relationship(
         back_populates="draft", cascade="all, delete-orphan", passive_deletes=True, lazy="raise_on_sql"
@@ -152,3 +161,22 @@ class DraftVersion(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     draft: Mapped[Draft] = relationship(back_populates="versions")
+
+
+class DraftImage(Base):
+    """A generated visual for a draft. The file lives in media storage under `storage_key`."""
+
+    __tablename__ = "draft_images"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    draft_id: Mapped[str] = mapped_column(ForeignKey("drafts.id", ondelete="CASCADE"), index=True)
+    storage_key: Mapped[str] = mapped_column(String(255))
+    mime: Mapped[str] = mapped_column(String(50))
+    prompt: Mapped[str] = mapped_column(Text)
+    alt_text: Mapped[str] = mapped_column(Text)
+    aspect_ratio: Mapped[str] = mapped_column(String(10))
+    style: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    model: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+    draft: Mapped[Draft] = relationship(back_populates="images")

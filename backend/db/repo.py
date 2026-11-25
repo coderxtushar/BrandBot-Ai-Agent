@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.db.models import Brand, Draft, DraftVersion, PlatformRun, Run, utcnow
+from backend.db.models import Brand, Draft, DraftImage, DraftVersion, PlatformRun, Run, utcnow
 from backend.platforms import get_spec
 from backend.schemas import (
     BrandCreate,
@@ -12,6 +12,7 @@ from backend.schemas import (
     BrandProfile,
     BrandRunRequest,
     BrandUpdate,
+    DraftImageOut,
     DraftOut,
     DraftRef,
     DraftVersionOut,
@@ -218,7 +219,16 @@ def run_detail(run: Run) -> RunDetail:
                 review=r.review,
                 attempts=r.attempts,
                 error=r.error,
-                drafts=[DraftRef(id=d.id, status=d.status, review=d.review, lint=_lint(r.platform, d.content)) for d in r.drafts],
+                drafts=[
+                    DraftRef(
+                        id=d.id,
+                        status=d.status,
+                        review=d.review,
+                        lint=_lint(r.platform, d.content),
+                        images=[image_out(i) for i in d.images],
+                    )
+                    for d in r.drafts
+                ],
             )
             for r in run.results
         ],
@@ -290,3 +300,52 @@ async def count_versions(s: AsyncSession, draft_id: str) -> int:
 
 def version_out(v: DraftVersion) -> DraftVersionOut:
     return DraftVersionOut.model_validate(v, from_attributes=True)
+
+
+# ---------------------------------------------------------------------------
+# Images
+# ---------------------------------------------------------------------------
+
+
+def image_out(img: DraftImage) -> DraftImageOut:
+    return DraftImageOut(
+        id=img.id,
+        draft_id=img.draft_id,
+        url=f"/media/{img.storage_key}",
+        prompt=img.prompt,
+        alt_text=img.alt_text,
+        aspect_ratio=img.aspect_ratio,
+        style=img.style,
+        model=img.model,
+        created_at=img.created_at,
+    )
+
+
+async def add_image(s: AsyncSession, draft: Draft, **fields) -> DraftImage:
+    img = DraftImage(draft_id=draft.id, **fields)
+    s.add(img)
+    await s.commit()
+    return img
+
+
+async def get_image(s: AsyncSession, image_id: str) -> DraftImage | None:
+    return await s.get(DraftImage, image_id)
+
+
+async def list_images(s: AsyncSession, draft_id: str) -> list[DraftImage]:
+    q = select(DraftImage).where(DraftImage.draft_id == draft_id).order_by(DraftImage.created_at.desc())
+    return list((await s.scalars(q)).all())
+
+
+async def delete_image(s: AsyncSession, img: DraftImage) -> str:
+    key = img.storage_key
+    await s.delete(img)
+    await s.commit()
+    return key
+
+
+async def media_keys(s: AsyncSession, *, run_id: str | None = None, brand_id: str | None = None) -> list[str]:
+    """Storage keys of every image under a run or brand (to delete the files with the rows)."""
+    q = select(DraftImage.storage_key).join(Draft).join(PlatformRun).join(Run)
+    q = q.where(Run.id == run_id) if run_id else q.where(Run.brand_id == brand_id)
+    return list((await s.scalars(q)).all())
