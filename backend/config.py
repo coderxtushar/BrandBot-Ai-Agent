@@ -103,7 +103,7 @@ class Settings(BaseSettings):
 
     cron_secret: str = Field(
         default="",
-        description="Bearer token for POST /internal/tick, called every minute by Cloud Scheduler (or any cron)",
+        description="Bearer token for POST /internal/tick, called on a schedule by Cloud Scheduler (or any cron)",
     )
 
     # --- Rate limits ("count/period", comma separated; period = second, minute, hour, day, e.g. "10/hour,40/day") ---

@@ -1,4 +1,4 @@
-"""Endpoints for infrastructure, not people. Cloud Scheduler calls /internal/tick every minute.
+"""Endpoints for infrastructure, not people. Cloud Scheduler calls /internal/tick on a schedule.
 
 On Cloud Run an instance only gets CPU while it serves a request and may scale to zero, so the in-process
 scheduler can't be trusted there: set SCHEDULER_ENABLED=false and let a cron call this instead.

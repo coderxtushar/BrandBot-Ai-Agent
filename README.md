@@ -148,13 +148,13 @@ which is also on every log line.
 ## Deploy
 
 The API runs on **Google Cloud Run**, the web app on **Vercel**, data in any managed **Postgres**, images in a
-**Cloud Storage** bucket. Cloud Run scales to zero, so a **Cloud Scheduler** job calls `/internal/tick` every minute
-to publish scheduled posts and refresh stats (the in-process scheduler is off there).
+**Cloud Storage** bucket. Cloud Run scales to zero, so a **Cloud Scheduler** job calls `/internal/tick` (every minute by
+default, `TICK_SCHEDULE`) to publish scheduled posts and refresh stats (the in-process scheduler is off there).
 
 ```
 browser ──> Vercel (Next.js) ── /api/* ──> Cloud Run (FastAPI) ──> Postgres
                                                  │  └─────────────> Cloud Storage (images)
-Cloud Scheduler ── every minute ── /internal/tick┘
+Cloud Scheduler ── TICK_SCHEDULE ─ /internal/tick┘
 ```
 
 1. **Postgres.** Cloud SQL, Neon or Supabase. The URL works as the host prints it (`postgres://...?sslmode=require`).
@@ -184,6 +184,9 @@ and logs a warning for SQLite, local media storage, a missing cron secret or a l
   120 seconds for the first byte, and the stream sends its first event right away (then a keep-alive every 15s).
   If you prefer to skip the proxy, give the web app and API one parent domain (`app.example.com`,
   `api.example.com`) and set `NEXT_PUBLIC_API_URL` to the API.
+- Neon's free plan has 100 compute hours a month and sleeps after 5 idle minutes. A tick every minute keeps it
+  awake around the clock (about 180 hours), so set `TICK_SCHEDULE="*/15 * * * *"` there: scheduled posts then go
+  out within 15 minutes of their time. Paused runs and the API reconnect on their own after the database sleeps.
 - `TRUSTED_PROXY_HOPS=2` (Vercel, then Google's front end) lets per-IP limits see the visitor's address.
 - Self-hosting: the two Dockerfiles (`Dockerfile` for the API, `frontend/Dockerfile` for the web app) run anywhere.
   `docker-compose.yml` is a working single-machine setup; put an HTTPS proxy in front and set
