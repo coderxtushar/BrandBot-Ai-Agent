@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
-import { CalendarClock, Copy, ExternalLink, History, ImagePlus, Pencil, Send, Sparkles, ThumbsDown, ThumbsUp, TriangleAlert, type LucideIcon } from "lucide-react";
+import { BadgeCheck, CalendarClock, Copy, ExternalLink, History, ImagePlus, Pencil, Send, Sparkles, ThumbsDown, ThumbsUp, TriangleAlert, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 import { DraftEditor } from "./draft-editor";
 import { Preview } from "./previews";
 import { PUBLISHABLE, PublishDialog } from "./publish-dialog";
+import { PostedMyselfDialog, ResultsDialog } from "./results-dialogs";
+import { compact } from "@/lib/analytics";
 import { VersionsSheet } from "./versions-sheet";
 import { Visuals } from "./visuals";
 
@@ -90,7 +92,7 @@ function Tool({
 }
 
 /** Where this draft has gone, or will go. */
-function PublicationChips({ pubs }: { pubs: Publication[] }) {
+function PublicationChips({ pubs, onAddResults }: { pubs: Publication[]; onAddResults: (p: Publication) => void }) {
   if (!pubs?.length) return null;
   return (
     <ul className="mb-4 flex flex-wrap gap-2">
@@ -103,9 +105,14 @@ function PublicationChips({ pubs }: { pubs: Publication[] }) {
               : p.status === "cancelled"
                 ? "bg-muted text-muted-foreground line-through"
                 : "bg-riso-blue/10 text-primary";
+        const stats = p.metrics
+          ? p.metrics.views != null
+            ? `, ${compact(p.metrics.views)} views`
+            : `, ${p.metrics.interactions.toLocaleString()} interactions`
+          : "";
         const label =
           p.status === "published"
-            ? "Published"
+            ? `Published${stats}`
             : p.status === "scheduled"
               ? `Scheduled for ${formatWhen(p.scheduled_at)}`
               : p.status === "publishing"
@@ -114,7 +121,12 @@ function PublicationChips({ pubs }: { pubs: Publication[] }) {
                   ? "Failed to publish"
                   : "Cancelled";
         return (
-          <motion.li key={p.id} initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
+          <motion.li key={p.id} initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex items-center gap-1">
+            {p.status === "published" && !p.metrics && (
+              <button type="button" onClick={() => onAddResults(p)} className="order-last rounded-full px-2 py-1 text-xs text-primary hover:underline">
+                Add results
+              </button>
+            )}
             {p.status === "published" && p.external_url ? (
               <a href={p.external_url} target="_blank" rel="noreferrer" className={cn("inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium", cls)}>
                 {label} <ExternalLink className="size-3" />
@@ -193,6 +205,8 @@ export function DraftCard({
   const [rewriting, setRewriting] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [postedOpen, setPostedOpen] = useState(false);
+  const [resultsFor, setResultsFor] = useState<Publication | null>(null);
   const publishable = PUBLISHABLE.includes(platform);
   const toggle = (m: Mode) => setMode((cur) => (cur === m ? null : m));
   const meta = platformMeta(platform);
@@ -257,13 +271,14 @@ export function DraftCard({
           <Tool icon={ImagePlus} label="Visuals" active={mode === "visuals"} onClick={() => toggle("visuals")} />
           <Tool icon={History} label="History" onClick={() => setHistoryOpen(true)} />
           <Tool icon={Copy} label="Copy" onClick={copy} />
+          <Tool icon={BadgeCheck} label="I posted it" onClick={() => setPostedOpen(true)} />
           {publishable && (
             <Tool icon={Send} label="Publish" onClick={() => setPublishOpen(true)} className="border-riso-blue/40 text-primary" />
           )}
         </div>
       </header>
 
-      <PublicationChips pubs={draft.publications} />
+      <PublicationChips pubs={draft.publications} onAddResults={setResultsFor} />
 
       {draft.lint.length > 0 && (
         <div role="status" className="mb-4 flex gap-2 rounded-xl bg-riso-sun/25 p-3 text-sm">
@@ -334,6 +349,21 @@ export function DraftCard({
       </div>
 
       <VersionsSheet draftId={draft.id} open={historyOpen} onOpenChange={setHistoryOpen} onRestore={restore} />
+      <PostedMyselfDialog
+        draftId={draft.id}
+        platform={platform}
+        open={postedOpen}
+        onOpenChange={setPostedOpen}
+        onSaved={(p) => cache.addPublication(platform, index, p)}
+      />
+      {resultsFor && (
+        <ResultsDialog
+          pub={resultsFor}
+          open={!!resultsFor}
+          onOpenChange={(o) => !o && setResultsFor(null)}
+          onSaved={(p) => cache.replacePublication(platform, index, p)}
+        />
+      )}
       {publishable && (
         <PublishDialog
           open={publishOpen}

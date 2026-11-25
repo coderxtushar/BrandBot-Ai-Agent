@@ -16,6 +16,8 @@ import { platform as platformMeta } from "@/lib/platforms";
 import { dayLabel, formatTime, formatWhen, nextHour, toLocalInput } from "@/lib/time";
 import type { PublicationItem, PublicationStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { compact, percent } from "@/lib/analytics";
+import { ResultsDialog } from "./results-dialogs";
 import { StudioHeader } from "./studio-header";
 
 const TABS: { id: string; label: string; statuses: PublicationStatus[]; empty: string }[] = [
@@ -53,6 +55,28 @@ function Reschedule({ item, onDone }: { item: PublicationItem; onDone: () => voi
   );
 }
 
+function Results({ item, refresh }: { item: PublicationItem; refresh: () => void }) {
+  const [open, setOpen] = useState(false);
+  const m = item.metrics;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-muted/70 px-3 py-2 text-sm">
+      {m ? (
+        <>
+          {m.views != null && <span><span className="font-semibold">{compact(m.views)}</span> views</span>}
+          <span><span className="font-semibold">{m.interactions.toLocaleString()}</span> interactions</span>
+          {m.engagement_rate != null && <span className="text-muted-foreground">{percent(m.engagement_rate)} engagement</span>}
+        </>
+      ) : (
+        <span className="text-muted-foreground">{item.metrics_error ?? "No numbers yet."}</span>
+      )}
+      <button type="button" onClick={() => setOpen(true)} className="ml-auto text-sm font-medium text-primary hover:underline">
+        {m ? "Update results" : "Add results"}
+      </button>
+      <ResultsDialog pub={item} open={open} onOpenChange={setOpen} onSaved={refresh} />
+    </div>
+  );
+}
+
 function Row({ item, refresh }: { item: PublicationItem; refresh: () => void }) {
   const meta = platformMeta(item.platform);
   const act = async (fn: () => Promise<PublicationItem>, done: (p: PublicationItem) => string) => {
@@ -85,6 +109,7 @@ function Row({ item, refresh }: { item: PublicationItem; refresh: () => void }) 
           </p>
           <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{item.preview}</p>
           {item.error && <p className={cn("mt-2 text-sm", item.status === "failed" ? "text-destructive" : "text-muted-foreground")}>{item.error}</p>}
+          {item.status === "published" && <Results item={item} refresh={refresh} />}
         </div>
         <div className="flex w-full flex-wrap justify-end gap-2 sm:w-auto">
           {item.external_url && (

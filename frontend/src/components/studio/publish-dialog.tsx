@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { Send, TriangleAlert } from "lucide-react";
+import { Send, Sparkles, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useConnections } from "@/hooks/use-studio-data";
+import { bestTime, nextOccurrence } from "@/lib/analytics";
 import { api } from "@/lib/api";
 import { platform as platformMeta } from "@/lib/platforms";
 import { formatWhen, nextHour, toLocalInput } from "@/lib/time";
@@ -41,6 +43,15 @@ export function PublishDialog({
   const [at, setAt] = useState(() => toLocalInput(nextHour()));
   const [withImage, setWithImage] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Suggest the best slot from this platform's own history (only once there's enough of it).
+  const history = useQuery({
+    queryKey: ["analytics", "best", platform],
+    queryFn: () => api.analyticsPosts(90, { platform }),
+    enabled: open,
+    staleTime: 10 * 60_000,
+  });
+  const best = history.data ? bestTime(history.data, platform) : null;
+  const suggestion = best ? nextOccurrence(best) : null;
 
   const account = accounts.find((a) => a.id === accountId) ?? accounts[0];
   const supportsImage = platform !== "x";
@@ -123,6 +134,17 @@ export function PublishDialog({
                 {when === "later" && (
                   <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                     <Input aria-label="Publish at" type="datetime-local" value={at} min={toLocalInput(new Date())} onChange={(e) => setAt(e.target.value)} className="mt-1" />
+                    {best && suggestion && (
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-riso-blue/10 px-3 py-2 text-sm">
+                        <span className="flex items-center gap-1.5">
+                          <Sparkles className="size-3.5 text-primary" aria-hidden />
+                          Your best time here: {best.label}
+                        </span>
+                        <button type="button" onClick={() => setAt(toLocalInput(suggestion))} className="font-medium text-primary hover:underline">
+                          Use {formatWhen(suggestion.toISOString())}
+                        </button>
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
