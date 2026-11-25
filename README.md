@@ -147,6 +147,31 @@ which is also on every log line.
 
 ## Deploy
 
+Two ways to host the API. The web app is on **Vercel** in both, and data is in any managed **Postgres**.
+
+### Free, no card: Render + Neon + Vercel
+
+```
+browser ──> Vercel (Next.js) ── /api/* ──> Render free (FastAPI) ──> Neon Postgres (data and images)
+GitHub Actions ── every 15 min ── /internal/tick ┘
+```
+
+1. **Neon.** Create a project, turn connection pooling off and copy the connection string as is.
+2. **API on Render.** Dashboard > New > Blueprint > this repo. `render.yaml` sets everything else; Render asks
+   for `DATABASE_URL`, `GOOGLE_API_KEY`, `TAVILY_API_KEY` and `CRON_SECRET` (any long random string, e.g.
+   `openssl rand -hex 24`). Edit the `vercel.app` addresses in `render.yaml` first if yours differ.
+3. **Web on Vercel.** Root Directory `frontend`, `API_ORIGIN` = the Render URL.
+4. **Tick.** Add repository secrets `BRANDBOT_API_URL` (the Render URL) and `BRANDBOT_CRON_SECRET` (same
+   `CRON_SECRET`); `.github/workflows/tick.yml` then publishes due posts every 15 minutes.
+5. **Proxy hops.** Call `GET https://<web app>/api/internal/client-ip` with `Authorization: Bearer <CRON_SECRET>`
+   and set `TRUSTED_PROXY_HOPS` so `client_ip` shows your own address (per-IP sign-up limits depend on it).
+
+What free costs you: the API sleeps after 15 idle minutes and the next request waits about a minute; Render's
+disk is wiped on restart, so images are stored in Postgres (`MEDIA_BACKEND=db`); migrations run when the
+container starts (`MIGRATE_ON_START=true`); scheduled posts go out within about 15 minutes of their time.
+
+### Google Cloud Run
+
 The API runs on **Google Cloud Run**, the web app on **Vercel**, data in any managed **Postgres**, images in a
 **Cloud Storage** bucket. Cloud Run scales to zero, so a **Cloud Scheduler** job calls `/internal/tick` (every minute by
 default, `TICK_SCHEDULE`) to publish scheduled posts and refresh stats (the in-process scheduler is off there).
