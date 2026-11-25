@@ -30,6 +30,11 @@ class Settings(BaseSettings):
         default=True, description="Create tables on startup (dev). Use `alembic upgrade head` in production."
     )
 
+    checkpoint_db: str = Field(
+        default="brandbot_checkpoints.db",
+        description="SQLite file for paused-run checkpoints (only used when DATABASE_URL is SQLite)",
+    )
+
     # --- Dev ---
     demo_mode: bool = Field(default=False, description="Use canned AI output (no API keys or credits needed)")
 
