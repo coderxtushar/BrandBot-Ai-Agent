@@ -1,16 +1,21 @@
 """Data access functions. Routers call these; nothing else touches the ORM directly."""
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from backend.db.models import Brand, Draft, PlatformRun, Run, utcnow
+from backend.db.models import Brand, Draft, DraftVersion, PlatformRun, Run, utcnow
+from backend.platforms import get_spec
 from backend.schemas import (
     BrandCreate,
     BrandOut,
     BrandProfile,
     BrandRunRequest,
     BrandUpdate,
+    DraftOut,
     DraftRef,
+    DraftVersionOut,
+    Review,
     RunDetail,
     RunResult,
     RunSummary,
@@ -86,15 +91,37 @@ async def create_run(s: AsyncSession, brand: Brand, req: BrandRunRequest) -> Run
     return run
 
 
+async def _store_strategy(s: AsyncSession, run: Run, profile: BrandProfile, plan, sources) -> None:
+    """Save profile/plan/sources on the run, and a freshly generated profile on the brand."""
+    brand = await s.get(Brand, run.brand_id)
+    profile_dict = profile.model_dump()
+    run.profile = profile_dict
+    run.plan = plan.model_dump()
+    run.sources = [src.model_dump() for src in sources]
+    if brand is not None and brand.profile != profile_dict:
+        brand.profile = profile_dict
+        brand.profile_updated_at = utcnow()
+
+
+async def mark_awaiting(s: AsyncSession, run_id: str, state: dict) -> Run:
+    """The run paused for plan review: keep what it has produced so far."""
+    run = await s.get(Run, run_id)
+    await _store_strategy(s, run, state["brand_profile"], state["plan"], state.get("sources", []))
+    run.status = "awaiting_plan"
+    await s.commit()
+    return await get_run(s, run_id)
+
+
+async def mark_running(s: AsyncSession, run: Run) -> None:
+    run.status = "running"
+    run.error = None
+    await s.commit()
+
+
 async def complete_run(s: AsyncSession, run_id: str, result: RunResult) -> Run:
     """Store the graph output, and save a freshly generated profile on the brand."""
     run = await s.get(Run, run_id)
-    brand = await s.get(Brand, run.brand_id)
-    profile = result.brand_profile.model_dump()
-
-    run.profile = profile
-    run.plan = result.plan.model_dump()
-    run.sources = [src.model_dump() for src in result.sources]
+    await _store_strategy(s, run, result.brand_profile, result.plan, result.sources)
     run.status = "completed"
     run.finished_at = utcnow()
     for pos, r in enumerate(result.results):
@@ -106,21 +133,23 @@ async def complete_run(s: AsyncSession, run_id: str, result: RunResult) -> Run:
                 attempts=r.attempts,
                 error=r.error,
                 drafts=[
-                    Draft(position=i, content=item, text=text)
+                    Draft(
+                        position=i,
+                        content=item,
+                        text=text,
+                        versions=[DraftVersion(source="generated", content=item, text=text)],
+                    )
                     for i, (item, text) in enumerate(zip(r.items, r.text, strict=True))
                 ],
             )
         )
-    if brand is not None and brand.profile != profile:
-        brand.profile = profile
-        brand.profile_updated_at = utcnow()
     await s.commit()
     return await get_run(s, run_id)
 
 
 async def fail_run(s: AsyncSession, run_id: str, error: str, status: str = "failed") -> None:
     run = await s.get(Run, run_id)
-    if run is None or run.status != "running":
+    if run is None or run.status not in ("running", "awaiting_plan"):
         return
     run.status = status
     run.error = error
@@ -168,6 +197,11 @@ def run_summary(run: Run) -> RunSummary:
     return RunSummary(**_summary_fields(run))
 
 
+def _lint(platform: str, content: dict) -> list[str]:
+    spec = get_spec(platform)
+    return spec.lint(spec.content_model.model_validate(content))
+
+
 def run_detail(run: Run) -> RunDetail:
     return RunDetail(
         **_summary_fields(run),
@@ -184,8 +218,75 @@ def run_detail(run: Run) -> RunDetail:
                 review=r.review,
                 attempts=r.attempts,
                 error=r.error,
-                drafts=[DraftRef(id=d.id, status=d.status) for d in r.drafts],
+                drafts=[DraftRef(id=d.id, status=d.status, review=d.review, lint=_lint(r.platform, d.content)) for d in r.drafts],
             )
             for r in run.results
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Drafts
+# ---------------------------------------------------------------------------
+
+
+async def get_draft(s: AsyncSession, draft_id: str) -> Draft | None:
+    q = (
+        select(Draft)
+        .where(Draft.id == draft_id)
+        .options(selectinload(Draft.platform_result).selectinload(PlatformRun.run).selectinload(Run.brand))
+    )
+    return (await s.scalars(q)).first()
+
+
+def draft_out(d: Draft) -> DraftOut:
+    spec = get_spec(d.platform_result.platform)
+    return DraftOut(
+        id=d.id,
+        run_id=d.platform_result.run_id,
+        platform=spec.id,
+        position=d.position,
+        content=d.content,
+        text=d.text,
+        status=d.status,
+        review=d.review,
+        lint=_lint(spec.id, d.content),
+        updated_at=d.updated_at,
+    )
+
+
+async def set_draft_content(
+    s: AsyncSession, d: Draft, content: dict, *, source: str, note: str | None = None, review: Review | None = None
+) -> Draft:
+    """Replace a draft's content (already validated) and record a version."""
+    spec = get_spec(d.platform_result.platform)
+    text = spec.render(spec.content_model.model_validate(content))
+    review_dict = review.model_dump() if review else None
+    d.content, d.text, d.review, d.status = content, text, review_dict, "draft"
+    s.add(DraftVersion(draft_id=d.id, source=source, note=note, content=content, text=text, review=review_dict))
+    await s.commit()
+    return d
+
+
+async def set_draft_status(s: AsyncSession, d: Draft, status: str) -> Draft:
+    d.status = status
+    await s.commit()
+    return d
+
+
+async def list_versions(s: AsyncSession, draft_id: str) -> list[DraftVersion]:
+    q = select(DraftVersion).where(DraftVersion.draft_id == draft_id).order_by(DraftVersion.created_at.desc())
+    return list((await s.scalars(q)).all())
+
+
+async def get_version(s: AsyncSession, draft_id: str, version_id: str) -> DraftVersion | None:
+    v = await s.get(DraftVersion, version_id)
+    return v if v is not None and v.draft_id == draft_id else None
+
+
+async def count_versions(s: AsyncSession, draft_id: str) -> int:
+    return await s.scalar(select(func.count()).where(DraftVersion.draft_id == draft_id)) or 0
+
+
+def version_out(v: DraftVersion) -> DraftVersionOut:
+    return DraftVersionOut.model_validate(v, from_attributes=True)
