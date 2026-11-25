@@ -8,3 +8,5 @@ __pycache__/
 /frontend/dist/
 .vscode/
 .DS_Store
+*.db
+*.db-journal
