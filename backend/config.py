@@ -39,6 +39,34 @@ class Settings(BaseSettings):
     # --- Media ---
     media_dir: str = Field(default="media", description="Where generated images are stored")
 
+    # --- Accounts & security ---
+    secret_key: str = Field(
+        default="dev-secret-change-me",
+        description="Encrypts platform tokens at rest. Set a long random value in production.",
+    )
+    session_days: int = 30
+    cookie_secure: bool = Field(default=False, description="Send cookies over HTTPS only (turn on in production)")
+
+    # --- Public URLs ---
+    api_public_url: str = Field(
+        default="http://localhost:8000",
+        description="Where this API is reachable. Used for OAuth callbacks and image URLs that platforms fetch.",
+    )
+    web_url: str = Field(default="http://localhost:3000", description="The web app, for redirects after connecting")
+
+    # --- Publishing ---
+    scheduler_enabled: bool = True
+    scheduler_interval_seconds: int = Field(default=30, ge=5)
+    linkedin_client_id: str = ""
+    linkedin_client_secret: str = ""
+    linkedin_api_version: str = Field(default="202607", description="LinkedIn-Version header (YYYYMM)")
+    x_client_id: str = ""
+    x_client_secret: str = ""
+    threads_app_id: str = ""
+    threads_app_secret: str = ""
+    instagram_app_id: str = ""
+    instagram_app_secret: str = ""
+
     # --- Dev ---
     demo_mode: bool = Field(default=False, description="Use canned AI output (no API keys or credits needed)")
 
