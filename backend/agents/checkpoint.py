@@ -39,8 +39,21 @@ async def open_checkpointer(settings: Settings | None = None) -> AsyncIterator:
     serde = make_serde()
     if settings.database_url.startswith("postgresql"):
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        from psycopg.rows import dict_row
+        from psycopg_pool import AsyncConnectionPool
 
-        async with AsyncPostgresSaver.from_conn_string(_postgres_dsn(settings.database_url), serde=serde) as saver:
+        # A pool, not one long-lived connection: serverless Postgres (Neon) drops connections when it sleeps and
+        # databases restart. check_connection replaces a dead connection before it's handed out.
+        pool = AsyncConnectionPool(
+            _postgres_dsn(settings.database_url),
+            min_size=1,
+            max_size=5,
+            open=False,
+            check=AsyncConnectionPool.check_connection,
+            kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+        )
+        async with pool:
+            saver = AsyncPostgresSaver(conn=pool, serde=serde)
             await saver.setup()
             yield saver
     else:
