@@ -14,7 +14,7 @@ ARG NEXT_PUBLIC_API_URL=
 ENV API_ORIGIN=$API_ORIGIN NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+RUN mkdir -p public && npm run build  # public/ may not exist in a clean checkout (git skips empty folders)
 
 FROM node:24-alpine
 WORKDIR /app
