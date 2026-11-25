@@ -73,7 +73,15 @@ def writer_prompts(
     past_posts: str,
     previous: dict | None,
     feedback: list[str],
+    guidance: str = "",
+    author_request: str = "",
 ) -> tuple[str, str]:
+    """Build writer prompts.
+
+    previous + feedback       -> revise after lint/reviewer rejection
+    previous + author_request -> rewrite an existing draft the way the author asked
+    guidance                  -> extra direction from the author for the whole run
+    """
     system = (
         f"You are an expert {spec.label} ghostwriter who writes in the client's own voice.\n"
         f"PLATFORM RULES:\n{spec.style_guide}\n\n"
@@ -87,6 +95,19 @@ def writer_prompts(
         f"Brand profile:\n{_profile_block(profile)}{voice}\n\n"
         f"Today's angle: {plan.angle} (pillar: {plan.pillar})\n\n"
         f"{_research_block(sources)}\n\n"
+    )
+    if guidance.strip():
+        user += f"Direction from the author (follow it):\n{guidance.strip()}\n\n"
+
+    if previous is not None and author_request and not feedback:
+        user += (
+            f"Here is the current {spec.label} draft (JSON):\n{previous}\n\n"
+            f"The author asked for this change: {author_request}\n"
+            "Rewrite the draft accordingly and keep everything else that works. Return exactly 1 variant."
+        )
+        return system, user
+
+    user += (
         f"Write {variants} distinct variant(s) for {spec.label}. Variants should differ in hook and structure, "
         "not just wording."
     )
@@ -96,6 +117,8 @@ def writer_prompts(
             f"\n\nYour previous draft was rejected. Previous draft (JSON):\n{previous}\n\n"
             f"Fix ALL of these issues while keeping what worked:\n{issues}"
         )
+        if author_request:
+            user += f"\n\nKeep honouring the author's original request: {author_request}"
     return system, user
 
 
