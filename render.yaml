@@ -39,8 +39,10 @@ services:
         value: https://brandbot-studio.vercel.app/api
       - key: CORS_ORIGINS
         value: '["https://brandbot-studio.vercel.app"]'
-      - key: TRUSTED_PROXY_HOPS  # measured with GET /internal/client-ip through the web app
-        value: "0"
+      # Measured with GET /api/internal/client-ip: X-Forwarded-For arrives as "visitor, Vercel, Cloudflare,
+      # Render balancer", and Vercel overwrites whatever the visitor sent, so the visitor is 4 from the right.
+      - key: TRUSTED_PROXY_HOPS
+        value: "4"
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL        # Neon direct connection string, pasted as is

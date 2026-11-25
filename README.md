@@ -164,7 +164,8 @@ GitHub Actions ── every 15 min ── /internal/tick ┘
 4. **Tick.** Add repository secrets `BRANDBOT_API_URL` (the Render URL) and `BRANDBOT_CRON_SECRET` (same
    `CRON_SECRET`); `.github/workflows/tick.yml` then publishes due posts every 15 minutes.
 5. **Proxy hops.** Call `GET https://<web app>/api/internal/client-ip` with `Authorization: Bearer <CRON_SECRET>`
-   and set `TRUSTED_PROXY_HOPS` so `client_ip` shows your own address (per-IP sign-up limits depend on it).
+   and set `TRUSTED_PROXY_HOPS` so `client_ip` shows your own address (per-IP sign-up limits depend on it). It is
+   4 for Vercel in front of Render (Vercel, Cloudflare, Render's balancer).
 
 What free costs you: the API sleeps after 15 idle minutes and the next request waits about a minute; Render's
 disk is wiped on restart, so images are stored in Postgres (`MEDIA_BACKEND=db`); migrations run when the
