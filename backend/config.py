@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     # --- Publishing ---
     scheduler_enabled: bool = True
     scheduler_interval_seconds: int = Field(default=30, ge=5)
+    metrics_refresh_hours: float = Field(default=6, gt=0, description="How often to re-read stats of recent posts")
+    metrics_max_age_days: int = Field(default=30, ge=1, description="Stop tracking stats this long after publishing")
     linkedin_client_id: str = ""
     linkedin_client_secret: str = ""
     linkedin_api_version: str = Field(default="202607", description="LinkedIn-Version header (YYYYMM)")

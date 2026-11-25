@@ -223,6 +223,10 @@ class BrandRunRequest(BaseModel):
         default=False,
         description="Pause after research so the author can approve or edit the angle and sources before writing",
     )
+    learn_from_results: bool = Field(
+        default=True,
+        description="Show the writers this brand's best-performing posts, and the planner which topics work",
+    )
 
 
 class PlanDecision(BaseModel):
@@ -267,6 +271,35 @@ PublicationStatus = Literal["scheduled", "publishing", "published", "failed", "c
 PUBLISHABLE = ("linkedin", "x", "threads", "instagram")
 
 
+class Metrics(BaseModel):
+    """Normalised post numbers. `shares` folds in reposts and quotes; `saves` folds in bookmarks."""
+
+    views: int | None = None
+    reach: int | None = None
+    likes: int = 0
+    comments: int = 0
+    shares: int = 0
+    saves: int = 0
+
+
+def interactions_of(m: Metrics) -> int:
+    return m.likes + m.comments + m.shares + m.saves
+
+
+class MetricsOut(Metrics):
+    interactions: int = 0
+    engagement_rate: float | None = Field(default=None, description="interactions / views, when views are known")
+
+    @classmethod
+    def of(cls, m: "Metrics | dict | None") -> "MetricsOut | None":
+        if m is None:
+            return None
+        m = Metrics.model_validate(m)
+        total = interactions_of(m)
+        rate = round(total / m.views, 4) if m.views else None
+        return cls(**m.model_dump(), interactions=total, engagement_rate=rate)
+
+
 class PublicationOut(BaseModel):
     id: str
     draft_id: str
@@ -280,6 +313,9 @@ class PublicationOut(BaseModel):
     error: str | None
     attempts: int
     include_image: bool
+    metrics: "MetricsOut | None" = None
+    metrics_updated_at: datetime | None = None
+    metrics_error: str | None = None
 
 
 class DraftRef(BaseModel):
@@ -426,6 +462,45 @@ class PublishRequest(BaseModel):
 
 class RescheduleRequest(BaseModel):
     scheduled_at: datetime
+
+
+class ManualMetricsRequest(BaseModel):
+    """Numbers typed in by the user (for platforms or posts without an analytics API)."""
+
+    views: int | None = Field(default=None, ge=0)
+    likes: int = Field(default=0, ge=0)
+    comments: int = Field(default=0, ge=0)
+    shares: int = Field(default=0, ge=0)
+    saves: int = Field(default=0, ge=0)
+
+
+class ManualPublicationRequest(BaseModel):
+    """"I posted this myself" (e.g. Medium, YouTube Shorts), so its results can be tracked."""
+
+    url: str | None = Field(default=None, max_length=2000)
+    published_at: datetime | None = None
+
+
+class MetricsSnapshot(MetricsOut):
+    captured_at: datetime
+    source: Literal["api", "manual"]
+
+
+class AnalyticsPost(BaseModel):
+    publication_id: str
+    draft_id: str
+    run_id: str
+    brand_id: str
+    brand_name: str
+    platform: PlatformId
+    pillar: str | None
+    angle: str | None
+    preview: str
+    published_at: datetime
+    external_url: str | None
+    metrics: MetricsOut | None
+    metrics_updated_at: datetime | None
+    metrics_error: str | None
 
 
 RunRequest.model_rebuild()
