@@ -4,7 +4,7 @@ An AI agent that builds your personal brand across **LinkedIn, X, Threads, Insta
 It learns your brand, researches a timely angle on the web, writes platform-native content in your voice,
 and has a reviewer agent check every draft (sending weak ones back for a rewrite).
 
-**Stack:** LangGraph · LangChain · Gemini · Tavily · FastAPI (SSE) · SQLAlchemy 2 + Alembic (SQLite/Postgres) · React 19 · Vite · Tailwind 4
+**Stack:** LangGraph · LangChain · Gemini · Tavily · FastAPI (SSE) · SQLAlchemy 2 + Alembic (SQLite/Postgres) · Next.js 16 · Tailwind 4 · shadcn/ui · Framer Motion · TanStack Query
 
 ## How it works
 
@@ -25,10 +25,12 @@ platform subgraph (runs in parallel for each platform):
 - **Safe research**: web results go into prompts as delimited, untrusted data.
 - **Saved brands and history**: brands, their profiles, and every run (plan, sources, drafts, reviews) are stored. A saved profile is reused, so runs skip that step until you change your brand input.
 - **Human in the loop**: with "review the angle first", a run pauses after research (LangGraph `interrupt()`). You edit the angle, drop sources, or add guidance, then it continues. The run is checkpointed (SQLite file, or Postgres), so a paused run survives server restarts.
+- **Visuals**: an art-director step turns any draft into an image brief using your brand's visual style, and Gemini generates it at the platform's aspect ratio (1:1 LinkedIn, 16:9 X and Medium, 4:5 Threads and Instagram, 9:16 Shorts). Images show up in the previews (carousel cover, article header, Shorts thumbnail).
 - **Editing loop**: approve/reject each draft, edit it in a form built from the platform's own format, or ask the AI to rewrite it ("shorter", "punchier", or your own words). Rewrites go through the same write → review loop. Every change is a version you can restore.
 
 ```
 brands ─< runs ─< platform_results ─< drafts ─< draft_versions
+                                              └─< draft_images
 ```
 
 ## Run it
@@ -39,10 +41,10 @@ uv venv --python 3.12 .venv && uv pip install -r requirements-dev.txt   # or: py
 cp .env.example .env        # add GOOGLE_API_KEY and TAVILY_API_KEY, or set DEMO_MODE=true
 .venv/bin/uvicorn backend.main:app --reload --port 8000
 
-# Frontend
+# Frontend (Next.js)
 cd frontend && npm install
-cp .env.example .env        # VITE_API_URL if the API isn't on :8000
-npm run dev                 # http://localhost:5173
+cp .env.example .env.local  # NEXT_PUBLIC_API_URL if the API isn't on :8000
+npm run dev                 # http://localhost:3000  (landing page; the app is at /studio)
 ```
 
 `DEMO_MODE=true` returns canned content with realistic streaming, so you can work on the UI without API keys or credits.
@@ -83,6 +85,10 @@ A test fails if the models and migrations drift apart.
 | POST | `/drafts/{id}/rewrite` | AI rewrite: `preset` and/or `instruction`, or `fresh: true` for a new draft |
 | GET | `/drafts/{id}/versions` | Version history, newest first |
 | POST | `/drafts/{id}/versions/{vid}/restore` | Restore an earlier version |
+| POST | `/drafts/{id}/images` | Generate an on-brand image (`idea`, `style`: photo / illustration / 3d / minimal) |
+| GET | `/drafts/{id}/images` | Images for a draft, newest first |
+| DELETE | `/images/{id}` | Delete an image and its file |
+| GET | `/media/{path}` | Serve a stored image |
 | POST | `/runs`, `/runs/stream` | Stateless: generate without saving |
 
 Interactive docs: http://localhost:8000/docs
@@ -102,7 +108,7 @@ cd frontend && npm run lint && npm run build
 - [x] **4. React app**: platform picker, live progress, native previews, copy / .md export
 - [x] **5. Persistence**: SQLAlchemy + Alembic (SQLite or Postgres), saved brands, profile editor, run history UI
 - [x] **6. Editing loop**: approve/reject, structured editor, AI rewrites and fresh drafts, version history, plan review via checkpointed `interrupt()`
-- [ ] **7. Visuals**: Gemini image generation for Instagram covers and carousel slides, Shorts thumbnails
+- [x] **7. Visuals + new UI**: art-directed Gemini images for every platform; web app rebuilt in Next.js with Framer Motion
 - [ ] **8. Accounts and publishing**: auth, OAuth for LinkedIn / X / Threads / Instagram, scheduled publishing
 - [ ] **9. Content calendar and analytics**: schedule view, metrics pulled back in, best performers feed future runs
 - [ ] **10. Deploy**: Docker, Cloud Run + Vercel, LangSmith tracing, rate limits

@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     demo_mode: bool = Field(default=False, description="Use canned AI output (no API keys or credits needed)")
 
     # --- API ---
-    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]  # Next.js dev server
 
 
 @lru_cache
