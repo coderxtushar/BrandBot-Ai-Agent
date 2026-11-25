@@ -22,6 +22,7 @@ class Services:
     searcher: object
     max_revisions: int
     images: object = None  # ImageGenerator
+    rewrite_max_revisions: int = 0  # for user-requested rewrites (drafts API)
 
 
 @lru_cache
@@ -38,13 +39,14 @@ def get_services() -> Services:
             FakeSearcher(delay=0.8),
             s.max_revisions,
             FakeImageGenerator(delay=1.2),
+            s.rewrite_max_revisions,
         )
 
     from backend.services.images import GeminiImageGenerator
     from backend.services.llm import GeminiClient
     from backend.services.search import TavilySearcher
 
-    return Services(GeminiClient(s), TavilySearcher(s), s.max_revisions, GeminiImageGenerator(s))
+    return Services(GeminiClient(s), TavilySearcher(s), s.max_revisions, GeminiImageGenerator(s), s.rewrite_max_revisions)
 
 
 @lru_cache
@@ -96,7 +98,7 @@ def durable_graph_dep(request: Request, services: Services = Depends(services_de
 
 def platform_graph_dep(services: Services = Depends(services_dep)):
     """The per-platform write -> review loop, used to rewrite a single draft."""
-    return _cached(("platform", services), lambda: build_platform_graph(services.llm, services.max_revisions))
+    return _cached(("platform", services), lambda: build_platform_graph(services.llm, services.rewrite_max_revisions))
 
 
 # ---------------------------------------------------------------------------

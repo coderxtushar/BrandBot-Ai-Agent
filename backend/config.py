@@ -42,6 +42,9 @@ class Settings(BaseSettings):
 
     # --- Agent behaviour ---
     max_revisions: int = Field(default=2, ge=0, le=5)  # review -> rewrite loops per platform
+    # A rewrite the user asks for is one write and one review: they steer the next change themselves, and each
+    # automatic revision adds two model calls (about a minute) while they wait.
+    rewrite_max_revisions: int = Field(default=0, ge=0, le=5)
     search_results_per_query: int = Field(default=4, ge=1, le=10)
     search_depth: str = "basic"                       # "basic" | "advanced" (advanced costs 2 credits)
 
