@@ -1,0 +1,32 @@
+# Free cron for hosts without one (Render's free plan): every 15 minutes, ask the API to publish due posts and
+# refresh stats. Every 15 minutes, not every minute, so a free Neon database can sleep between ticks.
+# Needs repository secrets BRANDBOT_API_URL (e.g. https://brandbot-api.onrender.com) and BRANDBOT_CRON_SECRET
+# (the API's CRON_SECRET). Without them the job does nothing, so forks stay green.
+# GitHub may start scheduled runs a few minutes late, and pauses them after 60 days without repo activity.
+name: Tick
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Publish due posts
+        env:
+          API_URL: ${{ secrets.BRANDBOT_API_URL }}
+          CRON_SECRET: ${{ secrets.BRANDBOT_CRON_SECRET }}
+        run: |
+          if [ -z "$API_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "BRANDBOT_API_URL or BRANDBOT_CRON_SECRET not set; skipping."
+            exit 0
+          fi
+          # A sleeping free instance takes about a minute to wake, hence the long timeout and retries.
+          curl -fsS --retry 3 --retry-delay 20 --retry-all-errors --max-time 150 -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" "${API_URL%/}/internal/tick"
+          echo
