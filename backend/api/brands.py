@@ -3,11 +3,13 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from backend.api.deps import graph_dep
+from backend.agents.graph import initial_state
+from backend.api.deps import durable_graph_dep
 from backend.api.streaming import graph_events, sse
 from backend.db import repo
 from backend.db.models import Brand, Run
@@ -19,6 +21,7 @@ from backend.schemas import (
     BrandProfile,
     BrandRunRequest,
     BrandUpdate,
+    PlanDecision,
     RunDetail,
     RunRequest,
     RunSummary,
@@ -82,7 +85,7 @@ async def delete_brand(brand: Brand = Depends(_brand_or_404), s: AsyncSession = 
 
 
 # ---------------------------------------------------------------------------
-# Runs for a brand (saved)
+# Runs for a brand (saved, checkpointed)
 # ---------------------------------------------------------------------------
 
 
@@ -96,9 +99,45 @@ def _run_request(brand: Brand, body: BrandRunRequest) -> RunRequest:
     )
 
 
+def _thread(run_id: str) -> dict:
+    return {"configurable": {"thread_id": run_id}}
+
+
 async def _fail(db: Database, run_id: str, error: str, status: str = "failed") -> None:
     async with db.sessions() as s:
         await repo.fail_run(s, run_id, error, status)
+
+
+async def _forget(graph, run_id: str) -> None:
+    """Drop a finished run's checkpoints; the result lives in our own tables."""
+    try:
+        await graph.checkpointer.adelete_thread(run_id)
+    except Exception:  # best effort
+        log.warning("Could not delete checkpoints for run %s", run_id, exc_info=True)
+
+
+async def _drive(graph, db: Database, run_id: str, graph_input, order) -> object:
+    """Run (or resume) the graph, persist the outcome, and yield SSE events."""
+    try:
+        async for kind, payload in graph_events(graph, graph_input, order=order, config=_thread(run_id)):
+            if kind == "progress":
+                yield sse("progress", payload)
+            elif kind == "interrupt":
+                async with db.sessions() as session:
+                    detail = repo.run_detail(await repo.mark_awaiting(session, run_id, payload))
+                yield sse("awaiting", detail)
+            else:
+                async with db.sessions() as session:
+                    detail = repo.run_detail(await repo.complete_run(session, run_id, payload))
+                await _forget(graph, run_id)
+                yield sse("result", detail)
+    except asyncio.CancelledError:  # client disconnected / pressed Stop
+        await asyncio.shield(_fail(db, run_id, "Cancelled", "cancelled"))
+        raise
+    except Exception as exc:
+        log.exception("Run %s failed", run_id)
+        await _fail(db, run_id, str(exc))
+        yield sse("error", {"detail": str(exc), "run_id": run_id})
 
 
 @router.post("/brands/{brand_id}/runs", response_model=RunDetail, status_code=201)
@@ -107,18 +146,24 @@ async def create_brand_run(
     brand: Brand = Depends(_brand_or_404),
     s: AsyncSession = Depends(get_session),
     db: Database = Depends(get_database),
-    graph=Depends(graph_dep),
+    graph=Depends(durable_graph_dep),
 ):
-    """Generate and save a run (no streaming)."""
+    """Generate and save a run (no streaming). With review_plan it returns paused (status awaiting_plan)."""
     req = _run_request(brand, body)
-    run = await repo.create_run(s, brand, body)
+    run_id = (await repo.create_run(s, brand, body)).id
     try:
-        async for kind, payload in graph_events(graph, req):
+        async for kind, payload in graph_events(
+            graph, initial_state(req, body.review_plan), order=req.platforms, config=_thread(run_id)
+        ):
+            if kind == "interrupt":
+                return repo.run_detail(await repo.mark_awaiting(s, run_id, payload))
             if kind == "final":
-                return repo.run_detail(await repo.complete_run(s, run.id, payload))
+                detail = repo.run_detail(await repo.complete_run(s, run_id, payload))
+                await _forget(graph, run_id)
+                return detail
     except Exception as exc:
-        log.exception("Run %s failed", run.id)
-        await _fail(db, run.id, str(exc))
+        log.exception("Run %s failed", run_id)
+        await _fail(db, run_id, str(exc))
         raise HTTPException(status_code=502, detail=f"Workflow failed: {exc}") from exc
 
 
@@ -128,31 +173,63 @@ async def stream_brand_run(
     brand: Brand = Depends(_brand_or_404),
     s: AsyncSession = Depends(get_session),
     db: Database = Depends(get_database),
-    graph=Depends(graph_dep),
+    graph=Depends(durable_graph_dep),
 ):
-    """Generate and save a run, streaming SSE: `run` (id), `progress`*, then `result` (RunDetail) or `error`."""
+    """Generate and save a run, streaming SSE.
+
+    Events: `run` (id), `progress`*, then one of `result` (RunDetail), `awaiting` (RunDetail paused
+    for plan review; continue with POST /runs/{id}/resume/stream), or `error`.
+    """
     req = _run_request(brand, body)
     run_id = (await repo.create_run(s, brand, body)).id
 
     async def events():
         yield sse("run", {"run_id": run_id})
-        try:
-            async for kind, payload in graph_events(graph, req):
-                if kind == "progress":
-                    yield sse("progress", payload)
-                    continue
-                async with db.sessions() as session:
-                    detail = repo.run_detail(await repo.complete_run(session, run_id, payload))
-                yield sse("result", detail)
-        except asyncio.CancelledError:  # client disconnected / pressed Stop
-            await asyncio.shield(_fail(db, run_id, "Cancelled", "cancelled"))
-            raise
-        except Exception as exc:
-            log.exception("Run %s failed", run_id)
-            await _fail(db, run_id, str(exc))
-            yield sse("error", {"detail": str(exc), "run_id": run_id})
+        async for event in _drive(graph, db, run_id, initial_state(req, body.review_plan), req.platforms):
+            yield event
 
     return EventSourceResponse(events())
+
+
+async def _awaiting_run(run: Run, graph, s: AsyncSession) -> Run:
+    if run.status != "awaiting_plan":
+        raise HTTPException(status_code=409, detail=f"Run is {run.status}, not waiting for review")
+    snapshot = await graph.aget_state(_thread(run.id))
+    if not snapshot.interrupts:
+        await repo.fail_run(s, run.id, "Saved progress for this run was lost; start a new run.")
+        raise HTTPException(status_code=409, detail="This run can no longer be resumed; start a new run.")
+    return run
+
+
+@router.post("/runs/{run_id}/resume/stream")
+async def resume_run(
+    decision: PlanDecision,
+    run: Run = Depends(_run_or_404),
+    s: AsyncSession = Depends(get_session),
+    db: Database = Depends(get_database),
+    graph=Depends(durable_graph_dep),
+):
+    """Continue a run paused for plan review with the author's (optionally edited) angle and sources."""
+    await _awaiting_run(run, graph, s)
+    await repo.mark_running(s, run)
+    run_id, order = run.id, list(run.platforms)
+
+    async def events():
+        yield sse("run", {"run_id": run_id})
+        async for event in _drive(graph, db, run_id, Command(resume=decision.model_dump()), order):
+            yield event
+
+    return EventSourceResponse(events())
+
+
+@router.post("/runs/{run_id}/cancel", response_model=RunDetail)
+async def cancel_run(run: Run = Depends(_run_or_404), s: AsyncSession = Depends(get_session), graph=Depends(durable_graph_dep)):
+    """Abandon a run that is waiting for plan review."""
+    if run.status != "awaiting_plan":
+        raise HTTPException(status_code=409, detail=f"Run is {run.status}; only paused runs can be cancelled")
+    await repo.fail_run(s, run.id, "Cancelled during plan review", "cancelled")
+    await _forget(graph, run.id)
+    return repo.run_detail(await repo.get_run(s, run.id))
 
 
 @router.get("/brands/{brand_id}/runs", response_model=list[RunSummary])
@@ -171,6 +248,17 @@ async def get_run(run: Run = Depends(_run_or_404)):
 
 
 @router.delete("/runs/{run_id}", status_code=204)
-async def delete_run(run: Run = Depends(_run_or_404), s: AsyncSession = Depends(get_session)):
+async def delete_run(request: Request, run: Run = Depends(_run_or_404), s: AsyncSession = Depends(get_session)):
+    if run.status == "awaiting_plan":  # drop its saved checkpoints too
+        await _forget_on_app(request, run.id)
     await repo.delete_run(s, run)
     return Response(status_code=204)
+
+
+async def _forget_on_app(request: Request, run_id: str) -> None:
+    checkpointer = getattr(request.app.state, "checkpointer", None)
+    if checkpointer is not None:
+        try:
+            await checkpointer.adelete_thread(run_id)
+        except Exception:
+            log.warning("Could not delete checkpoints for run %s", run_id, exc_info=True)

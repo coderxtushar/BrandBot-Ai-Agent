@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from backend.agents.checkpoint import open_checkpointer
 from backend.api import brands, runs
 from backend.config import get_settings
 from backend.db.session import get_database
@@ -26,14 +27,17 @@ async def lifespan(app: FastAPI):
     db = app.dependency_overrides.get(get_database, get_database)()
     if settings.db_auto_create:
         await db.create_all()
-    yield
+    checkpoints = app.dependency_overrides.get(open_checkpointer, open_checkpointer)
+    async with checkpoints() as checkpointer:  # durable state for paused runs
+        app.state.checkpointer = checkpointer
+        yield
     await db.dispose()
 
 
 app = FastAPI(
     title="Brand Bot API",
     description="Multi-platform personal branding agent: brand profile, research, and platform-native content.",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 app.add_middleware(

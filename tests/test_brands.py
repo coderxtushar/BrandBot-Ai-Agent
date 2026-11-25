@@ -1,9 +1,6 @@
-from backend.agents.graph import build_graph
-from backend.api.deps import graph_dep
-from backend.main import app
 from backend.schemas import ContentPlan
-from backend.services.fakes import FakeLLM, FakeSearcher
-from tests.conftest import stream
+from backend.services.fakes import FakeLLM
+from tests.conftest import stream, use_services
 from tests.test_api import BRAND
 
 
@@ -89,7 +86,7 @@ def test_failed_run_is_recorded(client):
                 raise RuntimeError("model unavailable")
             return await super().structured(schema, system, user, role=role)
 
-    app.dependency_overrides[graph_dep] = lambda: build_graph(BrokenPlanner(), FakeSearcher())
+    use_services(BrokenPlanner())
     b = make_brand(client)
     events = run_stream(client, b["id"])
     assert events[-1][0] == "error" and "model unavailable" in events[-1][1]["detail"]

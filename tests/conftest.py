@@ -1,13 +1,27 @@
 import json
+from contextlib import asynccontextmanager
 
 import pytest
 from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
 
-from backend.agents.graph import build_graph
-from backend.api.deps import graph_dep
+from backend.agents.checkpoint import make_serde, open_checkpointer
+from backend.api.deps import Services, services_dep
 from backend.db.session import Database, get_database
 from backend.main import app
 from backend.services.fakes import FakeLLM, FakeSearcher
+
+
+@asynccontextmanager
+async def memory_checkpointer():
+    yield InMemorySaver(serde=make_serde())
+
+
+def use_services(llm, searcher=None, max_revisions=2):
+    """Point the API at these (fake) AI services."""
+    services = Services(llm, searcher or FakeSearcher(), max_revisions)
+    app.dependency_overrides[services_dep] = lambda: services
+    return services
 
 
 @pytest.fixture
@@ -19,10 +33,10 @@ def llm():
 def client(tmp_path, llm):
     """API client backed by a throwaway SQLite DB and the fake LLM/search."""
     db = Database(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
-    graph = build_graph(llm, FakeSearcher())
     app.dependency_overrides[get_database] = lambda: db
-    app.dependency_overrides[graph_dep] = lambda: graph
-    with TestClient(app) as c:  # runs lifespan -> creates tables
+    app.dependency_overrides[open_checkpointer] = memory_checkpointer
+    use_services(llm)
+    with TestClient(app) as c:  # runs lifespan -> creates tables + checkpointer
         yield c
     app.dependency_overrides.clear()
 

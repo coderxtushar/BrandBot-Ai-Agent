@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
 
+from backend.agents.graph import initial_state
 from backend.api.deps import graph_dep
 from backend.api.streaming import graph_events, sse
 from backend.schemas import RunRequest, RunResult
@@ -16,7 +17,7 @@ log = logging.getLogger("brandbot")
 @router.post("", response_model=RunResult)
 async def create_run(req: RunRequest, graph=Depends(graph_dep)):
     """Run the full workflow and return the final result (no streaming, not saved)."""
-    async for kind, payload in graph_events(graph, req):
+    async for kind, payload in graph_events(graph, initial_state(req), order=req.platforms):
         if kind == "final":
             return payload
 
@@ -27,7 +28,7 @@ async def stream_run(req: RunRequest, graph=Depends(graph_dep)):
 
     async def events():
         try:
-            async for kind, payload in graph_events(graph, req):
+            async for kind, payload in graph_events(graph, initial_state(req), order=req.platforms):
                 yield sse("progress" if kind == "progress" else "result", payload)
         except Exception as exc:
             log.exception("Run failed")

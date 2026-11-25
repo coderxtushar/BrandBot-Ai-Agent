@@ -40,14 +40,17 @@ def test_stream_emits_progress_then_result(client):
 
 
 def test_missing_keys_give_503(monkeypatch, tmp_path):
+    from backend.agents.checkpoint import open_checkpointer
     from backend.api import deps
     from backend.db.session import Database, get_database
+    from tests.conftest import memory_checkpointer
 
     def boom():
         raise RuntimeError("GOOGLE_API_KEY is not set.")
 
-    monkeypatch.setattr(deps, "get_graph", boom)
+    monkeypatch.setattr(deps, "get_services", boom)
     app.dependency_overrides[get_database] = lambda: Database(f"sqlite+aiosqlite:///{tmp_path / 'x.db'}")
+    app.dependency_overrides[open_checkpointer] = memory_checkpointer
     try:
         with TestClient(app) as c:
             assert c.post("/runs", json=PAYLOAD).status_code == 503

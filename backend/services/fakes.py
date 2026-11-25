@@ -67,6 +67,16 @@ SAMPLES = {
 }
 
 
+def _mark(item, tag: str):
+    """Visibly change the first text field so rewrites are observable in tests and demo mode."""
+    for name, value in item:
+        if isinstance(value, str):
+            return item.model_copy(update={name: f"{value} [{tag}]"})
+        if isinstance(value, list) and value and isinstance(value[0], str):
+            return item.model_copy(update={name: [f"{value[0]} [{tag}]", *value[1:]]})
+    return item
+
+
 class FakeLLM:
     """Returns canned objects.
 
@@ -107,6 +117,10 @@ class FakeLLM:
         item = SAMPLES[inner]()
         if inner is XThread and self.long_first_tweet and self.calls[schema.__name__] == 1:
             item = XThread(tweets=["x" * 400])
+        if "The author asked for this change" in user:
+            item = _mark(item, "rewritten")
+        elif "Direction from the author" in user:
+            item = _mark(item, "guided")
         return schema(items=[item, SAMPLES[inner](), SAMPLES[inner]()])
 
 
