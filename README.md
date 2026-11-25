@@ -26,6 +26,8 @@ platform subgraph (runs in parallel for each platform):
 - **Saved brands and history**: brands, their profiles, and every run (plan, sources, drafts, reviews) are stored. A saved profile is reused, so runs skip that step until you change your brand input.
 - **Human in the loop**: with "review the angle first", a run pauses after research (LangGraph `interrupt()`). You edit the angle, drop sources, or add guidance, then it continues. The run is checkpointed (SQLite file, or Postgres), so a paused run survives server restarts.
 - **Visuals**: an art-director step turns any draft into an image brief using your brand's visual style, and Gemini generates it at the platform's aspect ratio (1:1 LinkedIn, 16:9 X and Medium, 4:5 Threads and Instagram, 9:16 Shorts). Images show up in the previews (carousel cover, article header, Shorts thumbnail).
+- **Accounts**: email + password sign-in (argon2 hashes, HTTP-only session cookies stored hashed, login rate limit, CSRF origin check). Every brand, run, draft and image belongs to one user.
+- **Publishing**: connect LinkedIn, X, Threads and Instagram with OAuth (PKCE for X; tokens encrypted at rest and refreshed automatically), then publish a draft now or schedule it. A background scheduler claims each due post atomically, so a post never goes out twice, and retries temporary failures.
 - **Editing loop**: approve/reject each draft, edit it in a form built from the platform's own format, or ask the AI to rewrite it ("shorter", "punchier", or your own words). Rewrites go through the same write → review loop. Every change is a version you can restore.
 
 ```
@@ -49,6 +51,23 @@ npm run dev                 # http://localhost:3000  (landing page; the app is a
 
 `DEMO_MODE=true` returns canned content with realistic streaming, so you can work on the UI without API keys or credits.
 
+### Publishing to your accounts
+
+Create a developer app per platform and set its OAuth redirect URL to
+`{API_PUBLIC_URL}/connections/{platform}/callback`, then add the credentials to `.env`:
+
+| Platform | What to set up | Env vars |
+|---|---|---|
+| LinkedIn | Products "Share on LinkedIn" + "Sign In with LinkedIn using OpenID Connect" | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, `LINKEDIN_API_VERSION` (YYYYMM) |
+| X | OAuth 2.0, app type "Web App" (confidential client) | `X_CLIENT_ID`, `X_CLIENT_SECRET` |
+| Threads | Threads API use case | `THREADS_APP_ID`, `THREADS_APP_SECRET` |
+| Instagram | Instagram API with Instagram Login (Business or Creator accounts) | `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` |
+
+Also set `SECRET_KEY` (encrypts stored tokens), `WEB_URL`, and `API_PUBLIC_URL`. Instagram and Threads download
+images from `API_PUBLIC_URL`, so it must be a public https address for image posts (a tunnel works for testing).
+Images are converted to JPEG for Instagram. X threads are posted as text. Medium and YouTube Shorts have no
+posting API, so they stay copy / export. In `DEMO_MODE`, every platform is simulated end to end.
+
 ### Database
 
 By default the data lives in a local SQLite file (`brandbot.db`), and tables are created on startup.
@@ -70,6 +89,16 @@ A test fails if the models and migrations drift apart.
 | Method | Path | |
 |---|---|---|
 | GET | `/health` | Liveness |
+| POST | `/auth/register`, `/auth/login`, `/auth/logout` | Accounts (session cookie) |
+| GET | `/auth/me` | The signed-in user |
+| GET | `/connections` | Connected accounts and which platforms this server can connect |
+| POST | `/connections/{platform}/start` | Start OAuth; returns the consent URL |
+| GET | `/connections/{platform}/callback` | OAuth redirect target |
+| DELETE | `/connections/{id}` | Disconnect (cancels its scheduled posts) |
+| POST | `/drafts/{id}/publications` | Publish now, or schedule with `scheduled_at` |
+| GET | `/publications` | Your posts (`status` filter) |
+| PATCH | `/publications/{id}` | Reschedule |
+| POST | `/publications/{id}/cancel`, `/publications/{id}/retry` | Cancel a scheduled post, retry a failed one |
 | GET | `/platforms` | Supported platforms |
 | POST | `/brands` | Create a brand (name + input) |
 | GET | `/brands` | List brands |
@@ -91,7 +120,7 @@ A test fails if the models and migrations drift apart.
 | GET | `/media/{path}` | Serve a stored image |
 | POST | `/runs`, `/runs/stream` | Stateless: generate without saving |
 
-Interactive docs: http://localhost:8000/docs
+Interactive docs: http://localhost:8000/docs. Everything except `/health`, `/platforms`, `/auth/*`, the OAuth callback and `/media` needs a signed-in session.
 
 ## Tests
 
@@ -109,7 +138,7 @@ cd frontend && npm run lint && npm run build
 - [x] **5. Persistence**: SQLAlchemy + Alembic (SQLite or Postgres), saved brands, profile editor, run history UI
 - [x] **6. Editing loop**: approve/reject, structured editor, AI rewrites and fresh drafts, version history, plan review via checkpointed `interrupt()`
 - [x] **7. Visuals + new UI**: art-directed Gemini images for every platform; web app rebuilt in Next.js with Framer Motion
-- [ ] **8. Accounts and publishing**: auth, OAuth for LinkedIn / X / Threads / Instagram, scheduled publishing
+- [x] **8. Accounts and publishing**: sign-in, OAuth for LinkedIn / X / Threads / Instagram, publish now or on a schedule
 - [ ] **9. Content calendar and analytics**: schedule view, metrics pulled back in, best performers feed future runs
 - [ ] **10. Deploy**: Docker, Cloud Run + Vercel, LangSmith tracing, rate limits
 
