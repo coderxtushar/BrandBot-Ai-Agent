@@ -1,4 +1,6 @@
 import type {
+  AnalyticsPost,
+  MetricsSnapshot,
   Connections,
   PublicationItem,
   PublicationStatus,
@@ -77,8 +79,29 @@ export const api = {
 
   publish: (draftId: string, body: { account_id: string; scheduled_at: string | null; include_image: boolean }) =>
     request<PublicationItem>(`/drafts/${draftId}/publications`, { method: "POST", body }),
-  publications: (status?: PublicationStatus[]) =>
-    request<PublicationItem[]>(`/publications${status?.length ? "?" + status.map((s) => `status=${s}`).join("&") : ""}`),
+  publications: (status?: PublicationStatus[], range?: { start: string; end: string }) => {
+    const q = new URLSearchParams();
+    status?.forEach((s) => q.append("status", s));
+    if (range) {
+      q.set("start", range.start);
+      q.set("end", range.end);
+      q.set("limit", "500");
+    }
+    const qs = q.toString();
+    return request<PublicationItem[]>(`/publications${qs ? `?${qs}` : ""}`);
+  },
+  analyticsPosts: (days: number, opts: { brandId?: string; platform?: string } = {}) => {
+    const q = new URLSearchParams({ days: String(days) });
+    if (opts.brandId) q.set("brand_id", opts.brandId);
+    if (opts.platform) q.set("platform", opts.platform);
+    return request<AnalyticsPost[]>(`/analytics/posts?${q}`);
+  },
+  refreshStats: () => request<{ updated: number; failed: number }>("/analytics/refresh", { method: "POST" }),
+  metricHistory: (pubId: string) => request<MetricsSnapshot[]>(`/publications/${pubId}/metrics`),
+  addResults: (pubId: string, body: { views: number | null; likes: number; comments: number; shares: number; saves: number }) =>
+    request<PublicationItem>(`/publications/${pubId}/metrics`, { method: "POST", body }),
+  postedMyself: (draftId: string, body: { url: string | null; published_at: string | null }) =>
+    request<PublicationItem>(`/drafts/${draftId}/manual-publication`, { method: "POST", body }),
   reschedule: (id: string, scheduled_at: string) => request<PublicationItem>(`/publications/${id}`, { method: "PATCH", body: { scheduled_at } }),
   cancelPublication: (id: string) => request<PublicationItem>(`/publications/${id}/cancel`, { method: "POST" }),
   retryPublication: (id: string) => request<PublicationItem>(`/publications/${id}/retry`, { method: "POST" }),

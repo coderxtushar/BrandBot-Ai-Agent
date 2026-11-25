@@ -82,6 +82,14 @@
   --ring: var(--riso-blue);
   --radius: 0.875rem;
   --overprint: multiply;
+
+  /* charts (validated with the dataviz palette script against the card surface) */
+  --chart-mark: #0078bf;
+  --heat-1: #86b6ef;
+  --heat-2: #5598e7;
+  --heat-3: #2a78d6;
+  --heat-4: #1c5cab;
+  --heat-5: #104281;
 }
 
 .dark {
@@ -112,6 +120,14 @@
   --input: rgb(236 238 246 / 0.18);
   --ring: var(--riso-blue);
   --overprint: screen;
+
+  /* on the dark sheet, more = lighter */
+  --chart-mark: #3987e5;
+  --heat-1: #1c5cab;
+  --heat-2: #2a78d6;
+  --heat-3: #5598e7;
+  --heat-4: #86b6ef;
+  --heat-5: #b7d3f6;
 }
 
 @layer base {

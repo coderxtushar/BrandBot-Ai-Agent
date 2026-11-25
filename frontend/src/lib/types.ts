@@ -66,6 +66,39 @@ export interface DraftImage {
 export type PublicationStatus = "scheduled" | "publishing" | "published" | "failed" | "cancelled";
 export type PublishablePlatform = "linkedin" | "x" | "threads" | "instagram";
 
+export interface Metrics {
+  views: number | null;
+  reach: number | null;
+  likes: number;
+  comments: number;
+  shares: number;
+  saves: number;
+  interactions: number;
+  engagement_rate: number | null;
+}
+
+export interface MetricsSnapshot extends Metrics {
+  captured_at: string;
+  source: "api" | "manual";
+}
+
+export interface AnalyticsPost {
+  publication_id: string;
+  draft_id: string;
+  run_id: string;
+  brand_id: string;
+  brand_name: string;
+  platform: PlatformId;
+  pillar: string | null;
+  angle: string | null;
+  preview: string;
+  published_at: string;
+  external_url: string | null;
+  metrics: Metrics | null;
+  metrics_updated_at: string | null;
+  metrics_error: string | null;
+}
+
 export interface Publication {
   id: string;
   draft_id: string;
@@ -79,6 +112,9 @@ export interface Publication {
   error: string | null;
   attempts: number;
   include_image: boolean;
+  metrics: Metrics | null;
+  metrics_updated_at: string | null;
+  metrics_error: string | null;
 }
 
 /** A publication with context, as listed on the Scheduled page. */
@@ -185,6 +221,7 @@ export interface RunSettings {
   topic: string;
   variants: number;
   review_plan: boolean;
+  learn_from_results: boolean;
 }
 
 export type ProgressEvent = {
