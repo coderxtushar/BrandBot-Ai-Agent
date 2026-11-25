@@ -21,6 +21,34 @@ class LLMClient(Protocol):
         ...
 
 
+class QuotaExhausted(RuntimeError):
+    """The model provider refused for quota: retrying now only makes the user wait longer."""
+
+
+def quota_message(exc: Exception) -> str:
+    text = str(exc)
+    if "per day" in text or "PerDay" in text:
+        return (
+            "Gemini's daily free limit for this model is used up (the free tier allows only a few runs a day). "
+            "It resets at midnight Pacific time, or turn on billing for the Google project that owns GOOGLE_API_KEY."
+        )
+    return "Gemini is rate limiting this key right now. Wait a minute and try again."
+
+
+async def call_with_retry(call, attempts: int = 2):
+    """Retry transient model errors, but stop at once on quota errors (they'd only fail again, slower)."""
+    from langchain_core.exceptions import ModelRateLimitError
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return await call()
+        except ModelRateLimitError as exc:
+            raise QuotaExhausted(quota_message(exc)) from exc
+        except Exception:
+            if attempt == attempts:
+                raise
+
+
 class GeminiClient:
     def __init__(self, settings: Settings):
         from langchain_google_genai import ChatGoogleGenerativeAI
@@ -28,7 +56,11 @@ class GeminiClient:
         if not settings.google_api_key:
             raise RuntimeError("GOOGLE_API_KEY is not set. Add it to your .env file.")
 
-        common = {"google_api_key": settings.google_api_key, "max_retries": 2}
+        # max_retries=1: no retries inside the SDK (it would retry quota errors with back-off); call_with_retry decides.
+        common = {"google_api_key": settings.google_api_key, "max_retries": 1}
+        if settings.gemini_thinking_level != "default":
+            # Gemini 3 thinks at "high" by default: ~35 s per call. "low" is ~20 s and plenty for writing and reviewing.
+            common["thinking_config"] = {"thinking_level": settings.gemini_thinking_level}
         self._models = {
             "writer": ChatGoogleGenerativeAI(
                 model=settings.gemini_model, temperature=settings.temperature, **common
@@ -39,9 +71,8 @@ class GeminiClient:
         }
 
     async def structured(self, schema, system, user, *, role="writer"):
-        model = self._models.get(role, self._models["writer"])
-        runnable = model.with_structured_output(schema).with_retry(stop_after_attempt=2)
-        result = await runnable.ainvoke([SystemMessage(system), HumanMessage(user)])
+        model = self._models.get(role, self._models["writer"]).with_structured_output(schema)
+        result = await call_with_retry(lambda: model.ainvoke([SystemMessage(system), HumanMessage(user)]))
         if result is None:
             raise RuntimeError(f"Model returned no parsable {schema.__name__}")
         return result

@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     gemini_review_model: str = "gemini-3.5-flash"   # reviewing (swap to a Pro model for stricter review)
     gemini_image_model: str = "gemini-3.1-flash-image"  # image generation
     temperature: float = 0.7
+    # How much Gemini 3 "thinks" before answering. Each step up adds seconds to every call; "default" leaves the
+    # model's own setting (high).
+    gemini_thinking_level: Literal["minimal", "low", "medium", "high", "default"] = "low"
 
     # --- Agent behaviour ---
     max_revisions: int = Field(default=2, ge=0, le=5)  # review -> rewrite loops per platform
