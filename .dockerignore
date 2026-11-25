@@ -1,0 +1,19 @@
+# Only the API goes into the root image; the web app has its own (frontend/Dockerfile).
+.git
+.github
+.venv
+venv
+.env
+.env.*
+!.env.example
+**/__pycache__
+**/*.pyc
+.pytest_cache
+*.db
+*.db-journal
+media
+frontend
+tests
+deploy
+*.md
+docker-compose.yml
