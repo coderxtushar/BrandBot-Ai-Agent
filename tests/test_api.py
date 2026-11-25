@@ -1,29 +1,15 @@
-import json
-
-import pytest
 from fastapi.testclient import TestClient
 
-from backend.agents.graph import build_graph
-from backend.main import _graph_dep, app
-from backend.services.fakes import FakeLLM, FakeSearcher
+from backend.main import app
+from tests.conftest import stream
 
-PAYLOAD = {
-    "brand": {
-        "target_audience": "Junior data scientists",
-        "expertise": "ML and Tableau",
-        "tone_of_voice": "Clear, practical",
-        "content_pillars": "ML mistakes, data storytelling",
-    },
-    "platforms": ["x", "linkedin", "medium"],
-    "variants": 2,
+BRAND = {
+    "target_audience": "Junior data scientists",
+    "expertise": "ML and Tableau",
+    "tone_of_voice": "Clear, practical",
+    "content_pillars": "ML mistakes, data storytelling",
 }
-
-
-@pytest.fixture
-def client():
-    app.dependency_overrides[_graph_dep] = lambda: build_graph(FakeLLM(), FakeSearcher())
-    yield TestClient(app)
-    app.dependency_overrides.clear()
+PAYLOAD = {"brand": BRAND, "platforms": ["x", "linkedin", "medium"], "variants": 2}
 
 
 def test_platforms(client):
@@ -41,18 +27,11 @@ def test_run_returns_results_in_requested_order(client):
 
 
 def test_validation_rejects_unknown_platform(client):
-    bad = {**PAYLOAD, "platforms": ["myspace"]}
-    assert client.post("/runs", json=bad).status_code == 422
+    assert client.post("/runs", json={**PAYLOAD, "platforms": ["myspace"]}).status_code == 422
 
 
 def test_stream_emits_progress_then_result(client):
-    with client.stream("POST", "/runs/stream", json=PAYLOAD) as res:
-        raw = "".join(res.iter_text())
-    events = [
-        (block.split("event: ")[1].split("\r\n")[0], json.loads(block.split("data: ", 1)[1]))
-        for block in raw.split("\r\n\r\n")
-        if "event: " in block
-    ]
+    events = stream(client, "/runs/stream", PAYLOAD)
     kinds = [k for k, _ in events]
     assert kinds[-1] == "result" and "progress" in kinds
     stages = {d.get("stage") for k, d in events if k == "progress"}
@@ -60,11 +39,17 @@ def test_stream_emits_progress_then_result(client):
     assert len(events[-1][1]["results"]) == 3
 
 
-def test_missing_keys_give_503(monkeypatch):
-    from backend import main
+def test_missing_keys_give_503(monkeypatch, tmp_path):
+    from backend.api import deps
+    from backend.db.session import Database, get_database
 
     def boom():
         raise RuntimeError("GOOGLE_API_KEY is not set.")
 
-    monkeypatch.setattr(main, "get_graph", boom)
-    assert TestClient(app).post("/runs", json=PAYLOAD).status_code == 503
+    monkeypatch.setattr(deps, "get_graph", boom)
+    app.dependency_overrides[get_database] = lambda: Database(f"sqlite+aiosqlite:///{tmp_path / 'x.db'}")
+    try:
+        with TestClient(app) as c:
+            assert c.post("/runs", json=PAYLOAD).status_code == 503
+    finally:
+        app.dependency_overrides.clear()
