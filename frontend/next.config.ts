@@ -1,9 +1,27 @@
 import type { NextConfig } from "next";
 
+// The browser talks to the API through this app at /api (same origin), so the session cookie is first-party
+// on any host (Vercel, Cloud Run, a custom domain) and no CORS preflights are needed.
+// API_ORIGIN is read at build time: set it before `next build`.
+const apiOrigin = (process.env.API_ORIGIN || "http://localhost:8000").replace(/\/$/, "");
+
+const securityHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+];
+
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: "standalone", // self-contained server for the Docker image; Vercel ignores it
+  poweredByHeader: false,
   cacheComponents: true,
   partialPrefetching: true,
+  experimental: {
+    // The self-hosted proxy drops a request after 30s of silence by default; AI rewrites and images can take longer.
+    // Streams send a keep-alive ping every 15s. (On Vercel the platform's own proxy limits apply instead.)
+    proxyTimeout: 15 * 60_000,
+  },
   turbopack: {
     rules: {
       "*.css": {
@@ -11,6 +29,12 @@ const nextConfig: NextConfig = {
         as: "*.css",
       },
     },
+  },
+  async rewrites() {
+    return [{ source: "/api/:path*", destination: `${apiOrigin}/:path*` }];
+  },
+  async headers() {
+    return [{ source: "/:path*", headers: securityHeaders }];
   },
 };
 

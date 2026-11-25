@@ -22,7 +22,9 @@ import type {
   RunSummary,
 } from "./types";
 
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+// Same-origin by default: next.config.ts proxies /api/* to the API (API_ORIGIN). Set NEXT_PUBLIC_API_URL only to
+// call the API directly, e.g. https://api.example.com when it shares a parent domain with the web app.
+export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "/api").replace(/\/$/, "");
 
 /** Absolute URL for a path the API returns (e.g. an image's /media/... url). */
 export const apiUrl = (path: string) => `${API_URL}${path}`;
