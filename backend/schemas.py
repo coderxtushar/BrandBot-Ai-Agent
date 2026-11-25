@@ -263,12 +263,32 @@ class DraftImageOut(BaseModel):
     created_at: datetime
 
 
+PublicationStatus = Literal["scheduled", "publishing", "published", "failed", "cancelled"]
+PUBLISHABLE = ("linkedin", "x", "threads", "instagram")
+
+
+class PublicationOut(BaseModel):
+    id: str
+    draft_id: str
+    account_id: str | None
+    account_name: str | None
+    platform: PlatformId
+    status: PublicationStatus
+    scheduled_at: datetime
+    published_at: datetime | None
+    external_url: str | None
+    error: str | None
+    attempts: int
+    include_image: bool
+
+
 class DraftRef(BaseModel):
     id: str
     status: DraftStatus
     review: Review | None = Field(default=None, description="Review of this draft alone, after a rewrite")
     lint: list[str] = Field(default_factory=list, description="Hard-rule problems in the current content")
     images: list[DraftImageOut] = Field(default_factory=list, description="Generated images, newest first")
+    publications: list[PublicationOut] = Field(default_factory=list, description="Scheduled and published posts")
 
 
 class StoredPlatformResult(PlatformResult):
@@ -347,6 +367,65 @@ class DraftVersionOut(BaseModel):
     note: str | None
     text: str
     created_at: datetime
+
+
+
+# ---------------------------------------------------------------------------
+# Accounts
+# ---------------------------------------------------------------------------
+
+
+class RegisterRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    password: str = Field(min_length=10, max_length=200, description="At least 10 characters")
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(max_length=320)
+    password: str = Field(max_length=200)
+
+
+class UserOut(BaseModel):
+    id: str
+    name: str
+    email: str
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Connections & publishing
+# ---------------------------------------------------------------------------
+
+
+class ConnectionOut(BaseModel):
+    id: str
+    platform: PlatformId
+    display_name: str
+    username: str | None
+    expires_at: datetime | None
+    created_at: datetime
+
+
+class PlatformConnectInfo(BaseModel):
+    platform: PlatformId
+    available: bool = Field(description="True when this server has app credentials (or demo mode) for the platform")
+    note: str
+
+
+class ConnectionsOut(BaseModel):
+    accounts: list[ConnectionOut]
+    platforms: list[PlatformConnectInfo]
+
+
+class PublishRequest(BaseModel):
+    account_id: str
+    scheduled_at: datetime | None = Field(default=None, description="UTC time to publish. Empty = publish now.")
+    include_image: bool = Field(default=True, description="Attach the draft's newest image where the platform supports it")
+
+
+class RescheduleRequest(BaseModel):
+    scheduled_at: datetime
 
 
 RunRequest.model_rebuild()
