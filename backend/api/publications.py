@@ -28,9 +28,16 @@ class PublicationItem(PublicationOut):
     preview: str
 
 
+def _preview(p) -> str:
+    """The text that actually gets posted (e.g. the Instagram caption, not the slide outline)."""
+    spec = get_spec(p.platform)
+    parts = spec.post_parts(spec.content_model.model_validate(p.draft.content)) or [p.draft.text]
+    return parts[0][:200]
+
+
 def _item(p) -> PublicationItem:
     run = p.draft.platform_result.run
-    return PublicationItem(**acc.publication_out(p).model_dump(), run_id=run.id, brand_name=run.brand.name, preview=p.draft.text[:200])
+    return PublicationItem(**acc.publication_out(p).model_dump(), run_id=run.id, brand_name=run.brand.name, preview=_preview(p))
 
 
 def _when(value):

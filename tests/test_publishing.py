@@ -249,3 +249,11 @@ def test_publications_are_private(client, run):
     assert client.get("/publications").json() == []
     assert client.post(f"/publications/{pub['id']}/cancel").status_code == 404
     assert client.delete(f"/connections/{account['id']}").status_code == 404
+
+
+def test_schedule_preview_is_the_posted_text(client, run):
+    account = connect(client, "instagram")
+    did = draft(run, "instagram")
+    client.post(f"/drafts/{did}/images", json={})
+    pub = publish(client, did, account["id"], scheduled_at=(utcnow() + timedelta(hours=1)).isoformat()).json()
+    assert "[Carousel]" not in pub["preview"] and pub["preview"].startswith("Your model isn't the problem.")
