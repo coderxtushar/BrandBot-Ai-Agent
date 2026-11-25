@@ -1,9 +1,12 @@
 """Central settings, loaded from environment variables / .env."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEV_SECRET = "dev-secret-change-me"
 
 
 class Settings(BaseSettings):
@@ -37,11 +40,15 @@ class Settings(BaseSettings):
     )
 
     # --- Media ---
-    media_dir: str = Field(default="media", description="Where generated images are stored")
+    media_backend: Literal["local", "gcs"] = Field(
+        default="local", description="local disk (MEDIA_DIR) or a Google Cloud Storage bucket (GCS_BUCKET)"
+    )
+    media_dir: str = Field(default="media", description="Where generated images are stored (local backend)")
+    gcs_bucket: str = Field(default="", description="Bucket for generated images (gcs backend)")
 
     # --- Accounts & security ---
     secret_key: str = Field(
-        default="dev-secret-change-me",
+        default=DEV_SECRET,
         description="Encrypts platform tokens at rest. Set a long random value in production.",
     )
     session_days: int = 30
@@ -69,11 +76,69 @@ class Settings(BaseSettings):
     instagram_app_id: str = ""
     instagram_app_secret: str = ""
 
+    cron_secret: str = Field(
+        default="",
+        description="Bearer token for POST /internal/tick, called every minute by Cloud Scheduler (or any cron)",
+    )
+
+    # --- Rate limits ("count/period", comma separated; period = second, minute, hour, day, e.g. "10/hour,40/day") ---
+    rate_limits_enabled: bool = True
+    rate_limit_runs: str = "10/hour,40/day"        # new AI runs and resumed runs, per user
+    rate_limit_rewrites: str = "40/hour,200/day"   # AI rewrites of a single draft, per user
+    rate_limit_images: str = "20/hour,60/day"      # generated images, per user
+    rate_limit_login: str = "10/5minutes"          # sign-in attempts, per IP + email
+    rate_limit_signup: str = "5/hour"              # new accounts, per IP
+
+    # --- Tracing (LangSmith) ---
+    langsmith_tracing: bool = Field(default=False, description="Send a trace of every AI run to LangSmith")
+    langsmith_api_key: str = ""
+    langsmith_project: str = "brand-bot"
+    langsmith_endpoint: str = Field(default="", description="Only for non-default regions, e.g. https://eu.api.smith.langchain.com")
+
+    # --- Deployment ---
+    environment: Literal["development", "production"] = Field(
+        default="development", description="production refuses to start with unsafe settings"
+    )
+    log_format: Literal["text", "json"] = Field(default="text", description="json for Cloud Logging and other collectors")
+    trusted_proxy_hops: int = Field(
+        default=0,
+        ge=0,
+        le=5,
+        description="Proxies in front of the API that append to X-Forwarded-For (Cloud Run: 1; Vercel -> Cloud Run: 2)",
+    )
+    google_cloud_project: str = Field(default="", description="Links JSON logs to Cloud Trace when set")
+
     # --- Dev ---
     demo_mode: bool = Field(default=False, description="Use canned AI output (no API keys or credits needed)")
 
     # --- API ---
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]  # Next.js dev server
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment == "production"
+
+    def deployment_problems(self) -> tuple[list[str], list[str]]:
+        """(errors, warnings) for a production deployment. Errors stop the API from starting."""
+        errors: list[str] = []
+        warnings: list[str] = []
+        if self.secret_key == DEV_SECRET or len(self.secret_key) < 32:
+            errors.append("SECRET_KEY must be a random value of at least 32 characters.")
+        if not self.cookie_secure:
+            errors.append("COOKIE_SECURE must be true (sessions over HTTPS only).")
+        if self.demo_mode:
+            errors.append("DEMO_MODE must be off.")
+        if self.database_url.startswith("sqlite"):
+            warnings.append("DATABASE_URL is SQLite; use Postgres when the disk isn't permanent (Cloud Run).")
+        if self.media_backend == "local":
+            warnings.append("MEDIA_BACKEND is local; images are lost when the container is replaced unless MEDIA_DIR is a volume.")
+        if not self.scheduler_enabled and not self.cron_secret:
+            warnings.append("The scheduler is off and CRON_SECRET is empty, so scheduled posts will never go out.")
+        if any(h in self.api_public_url for h in ("localhost", "127.0.0.1")):
+            warnings.append("API_PUBLIC_URL points to localhost; OAuth callbacks and Instagram/Threads images won't work.")
+        if self.web_url.rstrip("/") not in [o.rstrip("/") for o in self.cors_origins]:
+            warnings.append("WEB_URL isn't in CORS_ORIGINS; the web app's requests will be refused.")
+        return errors, warnings
 
 
 @lru_cache
