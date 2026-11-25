@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     # --- Models ---
     gemini_model: str = "gemini-3.5-flash"          # drafting / planning
     gemini_review_model: str = "gemini-3.5-flash"   # reviewing (swap to a Pro model for stricter review)
+    gemini_image_model: str = "gemini-3.1-flash-image"  # image generation
     temperature: float = 0.7
 
     # --- Agent behaviour ---
@@ -34,6 +35,9 @@ class Settings(BaseSettings):
         default="brandbot_checkpoints.db",
         description="SQLite file for paused-run checkpoints (only used when DATABASE_URL is SQLite)",
     )
+
+    # --- Media ---
+    media_dir: str = Field(default="media", description="Where generated images are stored")
 
     # --- Dev ---
     demo_mode: bool = Field(default=False, description="Use canned AI output (no API keys or credits needed)")

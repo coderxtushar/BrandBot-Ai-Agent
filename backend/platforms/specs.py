@@ -32,6 +32,8 @@ class PlatformSpec:
     label: str
     content_model: type[BaseModel]
     max_variants: int
+    image_aspect: str  # aspect ratio for generated visuals, e.g. "4:5"
+    image_role: str    # what the image is for, guides the art director
     style_guide: str
     lint: Callable[[BaseModel], list[str]]
     render: Callable[[BaseModel], str]
@@ -70,6 +72,8 @@ LINKEDIN = PlatformSpec(
     label="LinkedIn",
     content_model=LinkedInPost,
     max_variants=3,
+    image_aspect="1:1",
+    image_role="a scroll-stopping feed image that sits above a LinkedIn post",
     style_guide=(
         "LinkedIn post, 120-250 words. The hook (first 1-2 lines) must create curiosity or tension "
         "because only ~210 characters show before '...see more'. Short paragraphs of 1-2 sentences "
@@ -114,6 +118,8 @@ X = PlatformSpec(
     label="X (Twitter)",
     content_model=XThread,
     max_variants=3,
+    image_aspect="16:9",
+    image_role="a landscape image attached to the first tweet of a thread",
     style_guide=(
         "An X thread of 3-7 tweets (or a single tweet if the idea is small). Tweet 1 is a bold, "
         "specific hook that works on its own. Each tweet is one idea, punchy, under 260 characters. "
@@ -149,6 +155,8 @@ THREADS = PlatformSpec(
     label="Threads",
     content_model=ThreadsPost,
     max_variants=3,
+    image_aspect="4:5",
+    image_role="a casual, authentic-looking image for a Threads post",
     style_guide=(
         "Threads is conversational and casual, closer to talking than publishing. 1-3 short posts, "
         "each under 450 characters. Opinionated, warm, a bit personal. Ask a genuine question to "
@@ -187,6 +195,8 @@ INSTAGRAM = PlatformSpec(
     label="Instagram",
     content_model=InstagramPost,
     max_variants=2,
+    image_aspect="4:5",
+    image_role="the cover image (slide 1 background) of an Instagram carousel",
     style_guide=(
         "An Instagram carousel post. Slides teach one idea step by step: slide 1 is a scroll-stopping "
         "promise, middle slides deliver value (one point each, very little text), last slide is a "
@@ -227,6 +237,8 @@ MEDIUM = PlatformSpec(
     label="Medium",
     content_model=MediumArticle,
     max_variants=1,
+    image_aspect="16:9",
+    image_role="the header image at the top of a Medium article",
     style_guide=(
         "A Medium article of 800-1500 words in Markdown. Specific, benefit-driven title and a subtitle "
         "that adds context. Open with a short story or a surprising fact, not a definition. Use ## "
@@ -270,6 +282,8 @@ YOUTUBE_SHORTS = PlatformSpec(
     label="YouTube Shorts",
     content_model=YouTubeShortScript,
     max_variants=2,
+    image_aspect="9:16",
+    image_role="a vertical YouTube Shorts thumbnail (the title is overlaid separately)",
     style_guide=(
         "A 30-60 second vertical video script. The hook in the first 2 seconds must stop the scroll "
         "(a bold claim, a surprising number or a question). Fast pacing: one idea per beat, 3-6 seconds "
