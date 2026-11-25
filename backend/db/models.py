@@ -14,12 +14,13 @@ brands ─< runs ─< platform_results ─< drafts ─< draft_versions
 - A draft is one variant of content for that platform; drafts are what users edit and approve.
 - A draft_version is a snapshot of a draft after each change, for history and undo.
 - A draft_image is a generated visual for a draft (file in media storage).
+- rate_limits holds request counters per fixed time window, shared by every API instance.
 """
 
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, TypeDecorator, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, TypeDecorator, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -292,3 +293,13 @@ class PostMetric(Base):
     shares: Mapped[int] = mapped_column(Integer, default=0)
     saves: Mapped[int] = mapped_column(Integer, default=0)
     raw: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+
+
+class RateLimitCounter(Base):
+    """Requests counted in one fixed window, e.g. key 'runs:<user id>:3600:<window number>'."""
+
+    __tablename__ = "rate_limits"
+
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[int] = mapped_column(BigInteger, index=True)  # unix seconds when the window ends
