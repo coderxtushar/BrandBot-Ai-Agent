@@ -138,3 +138,43 @@ def reviewer_prompts(spec: PlatformSpec, profile: BrandProfile, sources: list[So
 
 def merge_feedback(lint_issues: list[str], review: Review | None) -> list[str]:
     return [*lint_issues, *(review.issues if review else [])]
+
+
+IMAGE_STYLES = {
+    "photo": "realistic editorial photography, natural light, shallow depth of field",
+    "illustration": "modern flat vector illustration, bold shapes, limited palette",
+    "3d": "soft 3D render, clay-like materials, studio lighting",
+    "minimal": "minimal abstract composition, generous negative space, subtle gradients",
+}
+
+
+def image_prompts(
+    spec: PlatformSpec,
+    profile: BrandProfile,
+    draft_text: str,
+    *,
+    style: str | None = None,
+    idea: str = "",
+    suggested: str = "",
+) -> tuple[str, str]:
+    """Art director: turn a draft into a prompt for the image model."""
+    system = (
+        "You are an art director for a personal brand. Write ONE prompt for an image model and its alt text.\n"
+        "Rules: describe a concrete scene or composition (subject, setting, lighting, colours, camera/angle); "
+        "make it relevant to the post's core idea, not a literal illustration of every sentence; it must look "
+        "premium and on-brand; NEVER include text, letters, numbers, logos, watermarks or UI screenshots; avoid "
+        "real people's likenesses and brand trademarks."
+    )
+    parts = [
+        f"The image is for: {spec.image_role} (aspect ratio {spec.image_aspect}).",
+        f"Brand positioning: {profile.positioning}",
+        f"Brand visual style: {profile.visual_style or 'not defined: choose something clean and modern'}",
+    ]
+    if style:
+        parts.append(f"Required style: {IMAGE_STYLES.get(style, style)}")
+    if suggested.strip():
+        parts.append(f"The writer suggested this visual: {suggested.strip()}")
+    if idea.strip():
+        parts.append(f"The author's own idea (follow it): {idea.strip()}")
+    parts.append(f"The post:\n<post>\n{draft_text[:3000]}\n</post>")
+    return system, "\n\n".join(parts)
