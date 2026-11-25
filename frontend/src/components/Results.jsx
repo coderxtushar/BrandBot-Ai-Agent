@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { CircleAlert, CircleCheck, ExternalLink } from 'lucide-react';
 import { platformLabel } from '../lib/api';
-import CopyButton from './CopyButton';
-import Preview from './Previews';
+import DraftCard from './DraftCard';
 
 function ReviewNote({ result }) {
   if (result.error) {
@@ -32,20 +31,20 @@ function ReviewNote({ result }) {
   );
 }
 
-function PlatformPanel({ result }) {
+function PlatformPanel({ result, onDraftUpdated }) {
   return (
     <div className="space-y-4">
       <ReviewNote result={result} />
       {result.items.map((item, i) => (
-        <section key={i} className="card p-4 sm:p-5">
-          <div className="mb-4 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-medium text-muted">
-              {result.items.length > 1 ? `Variant ${i + 1}` : platformLabel(result.platform)}
-            </h3>
-            <CopyButton text={result.text[i]} />
-          </div>
-          <Preview platform={result.platform} item={item} />
-        </section>
+        <DraftCard
+          key={result.drafts?.[i]?.id ?? i}
+          title={result.items.length > 1 ? `Variant ${i + 1}` : platformLabel(result.platform)}
+          platform={result.platform}
+          item={item}
+          text={result.text[i]}
+          draft={result.drafts?.[i] ?? { id: null, status: 'draft', review: null }}
+          onUpdated={(updated) => onDraftUpdated(result.platform, i, updated)}
+        />
       ))}
     </div>
   );
@@ -96,7 +95,7 @@ function Strategy({ data }) {
   );
 }
 
-export default function Results({ data }) {
+export default function Results({ data, onDraftUpdated }) {
   const tabs = [...data.results.map((r) => ({ id: r.platform, label: platformLabel(r.platform), result: r })), { id: 'strategy', label: 'Strategy & sources' }];
   const [active, setActive] = useState(tabs[0].id);
   const current = tabs.find((t) => t.id === active) ?? tabs[0];
@@ -122,7 +121,7 @@ export default function Results({ data }) {
           );
         })}
       </div>
-      {current.result ? <PlatformPanel result={current.result} /> : <Strategy data={data} />}
+      {current.result ? <PlatformPanel result={current.result} onDraftUpdated={onDraftUpdated} /> : <Strategy data={data} />}
     </div>
   );
 }
