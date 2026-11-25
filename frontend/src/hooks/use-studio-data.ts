@@ -91,6 +91,15 @@ export function useDraftCache(runId: string) {
       }));
       qc.invalidateQueries({ queryKey: ["publications"] });
     },
+    replacePublication(platform: PlatformId, index: number, pub: Publication) {
+      patch(platform, index, (r) => ({
+        ...r,
+        drafts: swap(r.drafts, index, {
+          ...r.drafts[index],
+          publications: r.drafts[index].publications.map((x) => (x.id === pub.id ? pub : x)),
+        }),
+      }));
+    },
     removeImage(platform: PlatformId, index: number, imageId: string) {
       patch(platform, index, (r) => ({
         ...r,
