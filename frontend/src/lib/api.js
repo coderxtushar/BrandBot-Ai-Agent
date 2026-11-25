@@ -4,7 +4,11 @@ async function errorDetail(res) {
   let detail = `Request failed (${res.status})`;
   try {
     const body = await res.json();
-    detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+    if (typeof body.detail === 'string') detail = body.detail;
+    else if (Array.isArray(body.detail)) {
+      // Pydantic validation errors -> "field.path: message"
+      detail = body.detail.map((e) => `${(e.loc || []).filter((x) => x !== 'body').join('.')}: ${e.msg}`).join('; ');
+    } else detail = JSON.stringify(body.detail);
   } catch { /* not JSON */ }
   return detail;
 }
@@ -28,11 +32,33 @@ export const api = {
   listRuns: (brandId, limit = 30) => request(`/brands/${brandId}/runs?limit=${limit}`),
   getRun: (id) => request(`/runs/${id}`),
   deleteRun: (id) => request(`/runs/${id}`, { method: 'DELETE' }),
+  cancelRun: (id) => request(`/runs/${id}/cancel`, { method: 'POST' }),
+  getDraft: (id) => request(`/drafts/${id}`),
+  updateDraft: (id, patch) => request(`/drafts/${id}`, { method: 'PATCH', body: patch }),
+  rewriteDraft: (id, body) => request(`/drafts/${id}/rewrite`, { method: 'POST', body }),
+  listVersions: (id) => request(`/drafts/${id}/versions`),
+  restoreVersion: (id, versionId) => request(`/drafts/${id}/versions/${versionId}/restore`, { method: 'POST' }),
 };
 
-/** Start a saved run for a brand and stream its progress. Resolves with the RunDetail. */
+export const REWRITE_PRESETS = [
+  { id: 'shorter', label: 'Shorter' },
+  { id: 'punchier', label: 'Punchier' },
+  { id: 'data', label: 'More data' },
+  { id: 'personal', label: 'More personal' },
+  { id: 'simpler', label: 'Simpler' },
+];
+
+/**
+ * Start a saved run for a brand and stream its progress.
+ * Resolves with { type: 'result' | 'awaiting', run: RunDetail }.
+ */
 export function streamBrandRun(brandId, body, handlers) {
   return streamSSE(`/brands/${brandId}/runs/stream`, body, handlers);
+}
+
+/** Continue a run that paused for plan review. Same resolution as streamBrandRun. */
+export function streamResume(runId, decision, handlers) {
+  return streamSSE(`/runs/${runId}/resume/stream`, decision, handlers);
 }
 
 /**
@@ -72,7 +98,8 @@ export async function streamSSE(path, payload, { onProgress, onRun, signal }) {
       const parsed = JSON.parse(data.join('\n'));
       if (event === 'progress') onProgress?.(parsed);
       else if (event === 'run') onRun?.(parsed.run_id);
-      else if (event === 'result') return parsed;
+      else if (event === 'result') return { type: 'result', run: parsed };
+      else if (event === 'awaiting') return { type: 'awaiting', run: parsed };
       else if (event === 'error') throw new Error(parsed.detail || 'The workflow failed');
     }
   }
