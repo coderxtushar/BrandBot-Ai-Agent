@@ -6,8 +6,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { CircleAlert, History, MoreHorizontal, PenLine, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { BrandMark } from "@/components/brand-mark";
-import { ThemeToggle } from "@/components/theme-toggle";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +30,7 @@ import { PlanReview } from "./plan-review";
 import { ProfileDialog } from "./profile-dialog";
 import { ResultsView } from "./results-view";
 import { RunProgress } from "./run-progress";
+import { StudioHeader } from "./studio-header";
 
 const NEW = "__new__";
 const EMPTY_INPUT: BrandInput = { target_audience: "", expertise: "", tone_of_voice: "", content_pillars: "", past_posts: "" };
@@ -227,10 +226,7 @@ export function Studio() {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur">
-        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <BrandMark />
-          <div className="flex items-center gap-1.5">
+      <StudioHeader>
             {brandsQ.isSuccess && (
               <BrandSwitcher brands={brands} activeId={brandId} isNew={isNew} onSelect={selectBrand} onNew={() => selectBrand(NEW)} disabled={stream.running} />
             )}
@@ -251,10 +247,7 @@ export function Studio() {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            <ThemeToggle />
-          </div>
-        </div>
-      </header>
+      </StudioHeader>
 
       <div className="mx-auto grid w-full max-w-[1440px] flex-1 gap-8 px-4 pt-6 pb-28 sm:px-6 lg:grid-cols-[400px_minmax(0,1fr)] lg:pb-10">
         <aside className={cn("space-y-10 lg:sticky lg:top-20 lg:block lg:max-h-[calc(100dvh-6rem)] lg:self-start lg:overflow-y-auto lg:pr-2", mobileTab === "results" && "max-lg:hidden")}>
