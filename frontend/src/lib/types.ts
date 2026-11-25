@@ -63,12 +63,59 @@ export interface DraftImage {
   created_at: string;
 }
 
+export type PublicationStatus = "scheduled" | "publishing" | "published" | "failed" | "cancelled";
+export type PublishablePlatform = "linkedin" | "x" | "threads" | "instagram";
+
+export interface Publication {
+  id: string;
+  draft_id: string;
+  account_id: string | null;
+  account_name: string | null;
+  platform: PlatformId;
+  status: PublicationStatus;
+  scheduled_at: string;
+  published_at: string | null;
+  external_url: string | null;
+  error: string | null;
+  attempts: number;
+  include_image: boolean;
+}
+
+/** A publication with context, as listed on the Scheduled page. */
+export interface PublicationItem extends Publication {
+  run_id: string;
+  brand_name: string;
+  preview: string;
+}
+
 export interface DraftRef {
   id: string;
   status: DraftStatus;
   review: Review | null;
   lint: string[];
   images: DraftImage[];
+  publications: Publication[];
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  created_at: string;
+}
+
+export interface Connection {
+  id: string;
+  platform: PlatformId;
+  display_name: string;
+  username: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface Connections {
+  accounts: Connection[];
+  platforms: { platform: PublishablePlatform; available: boolean; note: string }[];
 }
 
 /** Platform content is a different shape per platform; the previews know each one. */

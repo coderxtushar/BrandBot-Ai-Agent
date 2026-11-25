@@ -1,4 +1,8 @@
 import type {
+  Connections,
+  PublicationItem,
+  PublicationStatus,
+  User,
   Brand,
   BrandInput,
   BrandProfile,
@@ -49,6 +53,7 @@ async function request<T>(path: string, init: { method?: string; body?: unknown 
   let res: Response;
   try {
     res = await fetch(apiUrl(path), {
+      credentials: "include", // the session cookie
       method: init.method ?? "GET",
       headers: init.body !== undefined ? { "Content-Type": "application/json" } : undefined,
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
@@ -61,6 +66,23 @@ async function request<T>(path: string, init: { method?: string; body?: unknown 
 }
 
 export const api = {
+  me: () => request<User>("/auth/me"),
+  register: (body: { name: string; email: string; password: string }) => request<User>("/auth/register", { method: "POST", body }),
+  login: (body: { email: string; password: string }) => request<User>("/auth/login", { method: "POST", body }),
+  logout: () => request<null>("/auth/logout", { method: "POST" }),
+
+  connections: () => request<Connections>("/connections"),
+  startConnection: (platform: string) => request<{ url: string }>(`/connections/${platform}/start`, { method: "POST" }),
+  disconnect: (id: string) => request<null>(`/connections/${id}`, { method: "DELETE" }),
+
+  publish: (draftId: string, body: { account_id: string; scheduled_at: string | null; include_image: boolean }) =>
+    request<PublicationItem>(`/drafts/${draftId}/publications`, { method: "POST", body }),
+  publications: (status?: PublicationStatus[]) =>
+    request<PublicationItem[]>(`/publications${status?.length ? "?" + status.map((s) => `status=${s}`).join("&") : ""}`),
+  reschedule: (id: string, scheduled_at: string) => request<PublicationItem>(`/publications/${id}`, { method: "PATCH", body: { scheduled_at } }),
+  cancelPublication: (id: string) => request<PublicationItem>(`/publications/${id}/cancel`, { method: "POST" }),
+  retryPublication: (id: string) => request<PublicationItem>(`/publications/${id}/retry`, { method: "POST" }),
+
   listBrands: () => request<Brand[]>("/brands"),
   createBrand: (name: string, input: BrandInput) => request<Brand>("/brands", { method: "POST", body: { name, input } }),
   updateBrand: (id: string, patch: { name?: string; input?: BrandInput }) =>
@@ -101,6 +123,7 @@ async function streamSSE(path: string, payload: unknown, { onProgress, onRun, si
   try {
     res = await fetch(apiUrl(path), {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
       body: JSON.stringify(payload),
       signal,
