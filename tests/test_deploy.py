@@ -10,7 +10,7 @@ import pytest
 from backend.config import Settings, get_settings
 from backend.observability import JsonFormatter, client_ip, configure_tracing, request_id, trace_config
 from backend.ratelimit import Rule, parse_rules
-from backend.services.storage import GcsMediaStorage, valid_key
+from backend.services.storage import DbMediaStorage, GcsMediaStorage, valid_key
 from tests.conftest import USER, sign_up, stream
 from tests.test_brands import make_brand
 from tests.test_publishing import connect, draft, publish, set_due
@@ -249,6 +249,45 @@ def test_images_are_served_from_cloud_storage(client):
     img = client.post(f"/drafts/{draft(run, 'linkedin')}/images", json={}).json()
     res = client.get(img["url"])
     assert res.status_code == 200 and res.content and res.headers["cache-control"].startswith("public")
+
+
+def test_images_can_live_in_the_database(client):
+    """MEDIA_BACKEND=db (Render's free disk is wiped on restart): images are stored, served and deleted with their run."""
+    from sqlalchemy import func, select
+
+    from backend.api.deps import storage_dep
+    from backend.db.models import MediaObject
+    from backend.db.session import get_database
+
+    db = client.app.dependency_overrides[get_database]()
+    client.app.dependency_overrides[storage_dep] = lambda: DbMediaStorage(db)
+
+    async def stored():
+        async with db.sessions() as s:
+            return (await s.execute(select(func.count()).select_from(MediaObject))).scalar_one()
+
+    run = stream(client, f"/brands/{make_brand(client)['id']}/runs/stream", {"platforms": ["linkedin"]})[-1][1]
+    img = client.post(f"/drafts/{draft(run, 'linkedin')}/images", json={}).json()
+    res = client.get(img["url"])
+    assert res.status_code == 200 and res.content and res.headers["content-type"].startswith("image/")
+    assert client.portal.call(stored) == 1
+
+    assert client.delete(f"/runs/{run['id']}").status_code == 204
+    assert client.portal.call(stored) == 0
+    assert client.get(img["url"]).status_code == 404
+
+
+async def test_db_storage_rejects_foreign_keys(tmp_path):
+    from backend.db.session import Database
+
+    db = Database(f"sqlite+aiosqlite:///{tmp_path / 'm.db'}")
+    await db.create_all()
+    storage = DbMediaStorage(db)
+    key = await storage.save(b"bytes", "image/webp")
+    assert key.endswith(".webp") and await storage.read(key) == b"bytes"
+    assert await storage.read("../etc/passwd") is None
+    await storage.delete("../etc/passwd")  # ignored, no error
+    await db.dispose()
 
 
 # --- tracing ---------------------------------------------------------------------------
