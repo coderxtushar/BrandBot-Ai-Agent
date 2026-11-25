@@ -40,8 +40,8 @@ export default function Home() {
         <BrandMark />
         <div className="flex items-center gap-1">
           <ThemeToggle />
-          <Button asChild variant="ghost" className="hidden sm:inline-flex">
-            <Link href="/studio">Open the studio</Link>
+          <Button asChild variant="ghost">
+            <Link href="/login">Sign in</Link>
           </Button>
         </div>
       </header>
@@ -59,9 +59,9 @@ export default function Home() {
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Button asChild size="lg" className="shadow-misprint h-12 rounded-full px-6 text-base">
-                <Link href="/studio">Start writing</Link>
+                <Link href="/signup">Start writing</Link>
               </Button>
-              <span className="text-sm text-muted-foreground">Free to run locally. Bring your Gemini key.</span>
+              <span className="text-sm text-muted-foreground">Write it here, then publish or schedule it to your accounts.</span>
             </div>
           </div>
           <PressHero />
@@ -116,7 +116,7 @@ export default function Home() {
             <div aria-hidden className="overprint absolute -right-24 -bottom-24 size-64 rounded-full bg-riso-pink" />
             <h2 className="relative max-w-lg font-display text-5xl">Your next week of posts starts with one idea.</h2>
             <Button asChild size="lg" variant="secondary" className="relative mt-8 h-12 rounded-full px-6 text-base">
-              <Link href="/studio">Open the studio</Link>
+              <Link href="/signup">Make your account</Link>
             </Button>
           </div>
         </section>
