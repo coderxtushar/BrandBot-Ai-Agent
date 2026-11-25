@@ -1,8 +1,5 @@
 """Accounts: sign up, sign in, sign out. Sessions are HTTP-only cookies."""
 
-import time
-from collections import defaultdict, deque
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,25 +8,11 @@ from backend.config import get_settings
 from backend.db import accounts as acc
 from backend.db.models import User
 from backend.db.session import get_session
+from backend.ratelimit import check, ip_of
 from backend.schemas import LoginRequest, RegisterRequest, UserOut
 from backend.security import hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["accounts"])
-
-# Small in-process limiter for password guessing: 10 attempts per 5 minutes per IP + email.
-_WINDOW, _LIMIT = 300, 10
-_attempts: dict[str, deque] = defaultdict(deque)
-
-
-def _rate_limit(key: str) -> None:
-    now = time.monotonic()
-    q = _attempts[key]
-    while q and now - q[0] > _WINDOW:
-        q.popleft()
-    if len(q) >= _LIMIT:
-        raise HTTPException(status_code=429, detail="Too many sign-in attempts. Wait a few minutes and try again.")
-    q.append(now)
-
 
 def _set_cookie(response: Response, token: str) -> None:
     s = get_settings()
@@ -45,7 +28,8 @@ def _set_cookie(response: Response, token: str) -> None:
 
 
 @router.post("/register", response_model=UserOut, status_code=201)
-async def register(data: RegisterRequest, response: Response, s: AsyncSession = Depends(get_session)):
+async def register(data: RegisterRequest, request: Request, response: Response, s: AsyncSession = Depends(get_session)):
+    await check(s, "signup", ip_of(request), "rate_limit_signup", what="new accounts")
     if await acc.get_user_by_email(s, data.email):
         raise HTTPException(status_code=409, detail="An account with this email already exists. Sign in instead.")
     user = await acc.create_user(s, name=data.name, email=data.email, password_hash=hash_password(data.password))
@@ -56,7 +40,8 @@ async def register(data: RegisterRequest, response: Response, s: AsyncSession = 
 
 @router.post("/login", response_model=UserOut)
 async def login(data: LoginRequest, request: Request, response: Response, s: AsyncSession = Depends(get_session)):
-    _rate_limit(f"{request.client.host if request.client else '?'}|{data.email.strip().lower()}")
+    # Password guessing: limited per IP + email (shared across API instances).
+    await check(s, "login", f"{ip_of(request)}|{data.email.strip().lower()}", "rate_limit_login", what="sign-in attempts")
     user = await acc.get_user_by_email(s, data.email)
     if not verify_password(user.password_hash if user else None, data.password):
         raise HTTPException(status_code=401, detail="That email and password don't match.")

@@ -4,6 +4,8 @@ import logging
 from dataclasses import dataclass
 from typing import Protocol
 
+from langsmith import traceable
+
 from backend.config import Settings
 
 log = logging.getLogger(__name__)
@@ -31,6 +33,12 @@ class GeminiImageGenerator:
         self._client = genai.Client(api_key=settings.google_api_key)
         self._model = settings.gemini_image_model
 
+    @traceable(
+        name="gemini image",
+        run_type="llm",
+        process_inputs=lambda i: {"prompt": i.get("prompt"), "aspect_ratio": i.get("aspect_ratio")},
+        process_outputs=lambda o: {"mime": o.mime, "model": o.model, "bytes": len(o.data)} if isinstance(o, GeneratedImage) else {},
+    )
     async def generate(self, prompt: str, aspect_ratio: str) -> GeneratedImage:
         from google.genai import types
 

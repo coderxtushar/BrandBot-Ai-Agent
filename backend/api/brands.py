@@ -16,6 +16,8 @@ from backend.db import repo
 from backend.db.models import Brand, Run, User
 from backend.db.performance import brand_performance
 from backend.db.session import Database, get_database, get_session
+from backend.observability import trace_config
+from backend.ratelimit import per_user
 from backend.schemas import (
     BrandCreate,
     BrandInput,
@@ -30,6 +32,7 @@ from backend.schemas import (
 )
 
 router = APIRouter(tags=["brands & history"])
+RUN_LIMIT = per_user("runs", "rate_limit_runs", "AI runs")
 log = logging.getLogger("brandbot")
 
 
@@ -90,7 +93,7 @@ async def delete_brand(
     keys = await repo.media_keys(s, brand_id=brand.id) + await acc.publication_keys(s, brand_id=brand.id)
     await repo.delete_brand(s, brand)
     for key in keys:  # files go after the rows are gone
-        storage.delete(key)
+        await storage.delete(key)
     return Response(status_code=204)
 
 
@@ -113,6 +116,11 @@ def _thread(run_id: str) -> dict:
     return {"configurable": {"thread_id": run_id}}
 
 
+def _run_config(run_id: str, user_id: str, brand_id: str, platforms, name: str) -> dict:
+    """Checkpoint thread + LangSmith name, tags and ids for this run."""
+    return {**trace_config(name, user_id=user_id, brand_id=brand_id, run_id=run_id, platforms=platforms), **_thread(run_id)}
+
+
 async def _fail(db: Database, run_id: str, error: str, status: str = "failed") -> None:
     async with db.sessions() as s:
         await repo.fail_run(s, run_id, error, status)
@@ -126,10 +134,10 @@ async def _forget(graph, run_id: str) -> None:
         log.warning("Could not delete checkpoints for run %s", run_id, exc_info=True)
 
 
-async def _drive(graph, db: Database, run_id: str, graph_input, order) -> object:
+async def _drive(graph, db: Database, run_id: str, graph_input, order, config: dict) -> object:
     """Run (or resume) the graph, persist the outcome, and yield SSE events."""
     try:
-        async for kind, payload in graph_events(graph, graph_input, order=order, config=_thread(run_id)):
+        async for kind, payload in graph_events(graph, graph_input, order=order, config=config):
             if kind == "progress":
                 yield sse("progress", payload)
             elif kind == "interrupt":
@@ -150,7 +158,7 @@ async def _drive(graph, db: Database, run_id: str, graph_input, order) -> object
         yield sse("error", {"detail": str(exc), "run_id": run_id})
 
 
-@router.post("/brands/{brand_id}/runs", response_model=RunDetail, status_code=201)
+@router.post("/brands/{brand_id}/runs", response_model=RunDetail, status_code=201, dependencies=[RUN_LIMIT])
 async def create_brand_run(
     body: BrandRunRequest,
     brand: Brand = Depends(_brand_or_404),
@@ -164,7 +172,10 @@ async def create_brand_run(
     run_id = (await repo.create_run(s, brand, body)).id
     try:
         async for kind, payload in graph_events(
-            graph, initial_state(req, body.review_plan, performance), order=req.platforms, config=_thread(run_id)
+            graph,
+            initial_state(req, body.review_plan, performance),
+            order=req.platforms,
+            config=_run_config(run_id, brand.user_id, brand.id, req.platforms, "brand run"),
         ):
             if kind == "interrupt":
                 return repo.run_detail(await repo.mark_awaiting(s, run_id, payload))
@@ -178,7 +189,7 @@ async def create_brand_run(
         raise HTTPException(status_code=502, detail=f"Workflow failed: {exc}") from exc
 
 
-@router.post("/brands/{brand_id}/runs/stream")
+@router.post("/brands/{brand_id}/runs/stream", dependencies=[RUN_LIMIT])
 async def stream_brand_run(
     body: BrandRunRequest,
     brand: Brand = Depends(_brand_or_404),
@@ -195,11 +206,13 @@ async def stream_brand_run(
     performance = await brand_performance(s, brand.id, [p.value for p in req.platforms]) if body.learn_from_results else None
     run_id = (await repo.create_run(s, brand, body)).id
 
+    config = _run_config(run_id, brand.user_id, brand.id, req.platforms, "brand run")
+
     async def events():
         yield sse("run", {"run_id": run_id})
         if performance:
             yield sse("progress", {"stage": "learning", "status": "done", "platforms": sorted(performance["examples"])})
-        async for event in _drive(graph, db, run_id, initial_state(req, body.review_plan, performance), req.platforms):
+        async for event in _drive(graph, db, run_id, initial_state(req, body.review_plan, performance), req.platforms, config):
             yield event
 
     return EventSourceResponse(events())
@@ -215,22 +228,24 @@ async def _awaiting_run(run: Run, graph, s: AsyncSession) -> Run:
     return run
 
 
-@router.post("/runs/{run_id}/resume/stream")
+@router.post("/runs/{run_id}/resume/stream", dependencies=[RUN_LIMIT])
 async def resume_run(
     decision: PlanDecision,
     run: Run = Depends(_run_or_404),
     s: AsyncSession = Depends(get_session),
     db: Database = Depends(get_database),
     graph=Depends(durable_graph_dep),
+    user: User = Depends(current_user),
 ):
     """Continue a run paused for plan review with the author's (optionally edited) angle and sources."""
     await _awaiting_run(run, graph, s)
     await repo.mark_running(s, run)
     run_id, order = run.id, list(run.platforms)
+    config = _run_config(run_id, user.id, run.brand_id, order, "brand run (resumed)")
 
     async def events():
         yield sse("run", {"run_id": run_id})
-        async for event in _drive(graph, db, run_id, Command(resume=decision.model_dump()), order):
+        async for event in _drive(graph, db, run_id, Command(resume=decision.model_dump()), order, config):
             yield event
 
     return EventSourceResponse(events())
@@ -273,7 +288,7 @@ async def delete_run(
     keys = await repo.media_keys(s, run_id=run.id) + await acc.publication_keys(s, run_id=run.id)
     await repo.delete_run(s, run)
     for key in keys:
-        storage.delete(key)
+        await storage.delete(key)
     return Response(status_code=204)
 
 

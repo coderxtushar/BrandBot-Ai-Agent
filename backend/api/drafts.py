@@ -11,6 +11,8 @@ from backend.db import repo
 from backend.db.models import Draft, User
 from backend.db.session import get_session
 from backend.platforms import get_spec
+from backend.observability import trace_config
+from backend.ratelimit import per_user
 from backend.schemas import (
     BrandInput,
     BrandProfile,
@@ -64,12 +66,13 @@ async def update_draft(data: DraftUpdate, draft: Draft = Depends(_draft_or_404),
     return repo.draft_out(draft)
 
 
-@router.post("/{draft_id}/rewrite", response_model=DraftOut)
+@router.post("/{draft_id}/rewrite", response_model=DraftOut, dependencies=[per_user("rewrites", "rate_limit_rewrites", "AI rewrites")])
 async def rewrite_draft(
     req: RewriteRequest,
     draft: Draft = Depends(_draft_or_404),
     s: AsyncSession = Depends(get_session),
     platform_graph=Depends(platform_graph_dep),
+    user: User = Depends(current_user),
 ):
     """Ask the AI to rewrite this draft (or write a fresh one). It goes through the same lint + review loop."""
     instruction = req.text()
@@ -91,7 +94,15 @@ async def rewrite_draft(
         "instruction": instruction,
         "fresh": req.fresh,
     }
-    out = await platform_graph.ainvoke(state)
+    config = trace_config(
+        "fresh draft" if req.fresh else "rewrite",
+        user_id=user.id,
+        brand_id=run.brand_id,
+        run_id=run.id,
+        draft_id=draft.id,
+        platforms=[draft.platform_result.platform],
+    )
+    out = await platform_graph.ainvoke(state, config)
     result = out["results"][0]
     if result.error or not result.items:
         raise HTTPException(status_code=502, detail=result.error or "The writer returned nothing.")
