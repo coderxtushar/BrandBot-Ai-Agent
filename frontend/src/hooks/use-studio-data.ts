@@ -1,15 +1,42 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import type { Draft, DraftImage, PlatformId, RunDetail, RunSummary } from "@/lib/types";
+import { ApiError, api } from "@/lib/api";
+import type { Draft, DraftImage, PlatformId, Publication, PublicationStatus, RunDetail, RunSummary } from "@/lib/types";
 
 export const keys = {
   brands: ["brands"] as const,
   runs: (brandId: string) => ["runs", brandId] as const,
   run: (runId: string) => ["run", runId] as const,
   versions: (draftId: string) => ["versions", draftId] as const,
+  me: ["me"] as const,
+  connections: ["connections"] as const,
+  publications: (status: string) => ["publications", status] as const,
 };
+
+/** The signed-in user, or null when signed out. */
+export function useMe() {
+  return useQuery({
+    queryKey: keys.me,
+    queryFn: async () => {
+      try {
+        return await api.me();
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return null;
+        throw err;
+      }
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useConnections() {
+  return useQuery({ queryKey: keys.connections, queryFn: api.connections });
+}
+
+export function usePublications(status: PublicationStatus[]) {
+  return useQuery({ queryKey: keys.publications(status.join(",")), queryFn: () => api.publications(status), refetchInterval: 30_000 });
+}
 
 export function useBrands() {
   return useQuery({ queryKey: keys.brands, queryFn: api.listBrands });
@@ -56,6 +83,13 @@ export function useDraftCache(runId: string) {
         ...r,
         drafts: swap(r.drafts, index, { ...r.drafts[index], images: [image, ...r.drafts[index].images] }),
       }));
+    },
+    addPublication(platform: PlatformId, index: number, pub: Publication) {
+      patch(platform, index, (r) => ({
+        ...r,
+        drafts: swap(r.drafts, index, { ...r.drafts[index], publications: [pub, ...(r.drafts[index].publications ?? [])] }),
+      }));
+      qc.invalidateQueries({ queryKey: ["publications"] });
     },
     removeImage(platform: PlatformId, index: number, imageId: string) {
       patch(platform, index, (r) => ({
