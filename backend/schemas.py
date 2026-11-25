@@ -4,6 +4,7 @@ Every LLM call returns one of these models (structured output), so nothing downs
 has to parse free text.
 """
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
@@ -178,6 +179,71 @@ class RunResult(BaseModel):
     plan: ContentPlan
     sources: list[Source]
     results: list[PlatformResult]
+
+
+
+# ---------------------------------------------------------------------------
+# Persistence API (brands & run history)
+# ---------------------------------------------------------------------------
+
+RunStatus = Literal["running", "completed", "failed", "cancelled"]
+
+
+class BrandCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    input: BrandInput
+
+
+class BrandUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    input: BrandInput | None = Field(default=None, description="Changing the input clears the saved profile")
+
+
+class BrandOut(BaseModel):
+    id: str
+    name: str
+    input: BrandInput
+    profile: BrandProfile | None
+    profile_updated_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class BrandRunRequest(BaseModel):
+    platforms: list[PlatformId] = Field(min_length=1)
+    topic: str = Field(default="", max_length=500)
+    variants: int = Field(default=1, ge=1, le=3)
+    regenerate_profile: bool = Field(default=False, description="Ignore the saved profile and build a new one")
+
+
+class DraftRef(BaseModel):
+    id: str
+    status: str
+
+
+class StoredPlatformResult(PlatformResult):
+    drafts: list[DraftRef] = Field(default_factory=list, description="Ids for each item, same order")
+
+
+class RunSummary(BaseModel):
+    id: str
+    brand_id: str
+    status: RunStatus
+    platforms: list[PlatformId]
+    topic: str
+    angle: str | None
+    approved: int = Field(description="Platforms the reviewer approved")
+    created_at: datetime
+    finished_at: datetime | None
+
+
+class RunDetail(RunSummary):
+    variants: int
+    error: str | None
+    brand_profile: BrandProfile | None
+    plan: ContentPlan | None
+    sources: list[Source]
+    results: list[StoredPlatformResult]
 
 
 RunRequest.model_rebuild()
