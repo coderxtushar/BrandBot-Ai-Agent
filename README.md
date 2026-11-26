@@ -14,6 +14,8 @@ live, and a Next.js studio app, deployable for free (Render + Neon + Vercel) or 
 runs on free plans: the first request after a quiet spell can take about a minute while the API wakes up, and
 AI writing is limited to a few runs a day across all users (see [Limits and running costs](#limits-and-running-costs)).
 
+![The Brand Bot studio: the brand and platform picker on the left, a reviewed LinkedIn draft with its actions on the right](docs/screenshots/studio.png)
+
 ---
 
 ## Contents
