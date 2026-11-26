@@ -10,6 +10,10 @@ connected accounts. Results come back as analytics, and the next run learns from
 It is a full-stack project: a LangGraph agent with Gemini and Tavily, a FastAPI backend that streams progress
 live, and a Next.js studio app, deployable for free (Render + Neon + Vercel) or on Google Cloud Run.
 
+**Live site: [brandbot-studio.vercel.app](https://brandbot-studio.vercel.app)**. Sign up to try the studio. It
+runs on free plans: the first request after a quiet spell can take about a minute while the API wakes up, and
+AI writing is limited to a few runs a day across all users (see [Limits and running costs](#limits-and-running-costs)).
+
 ---
 
 ## Contents
