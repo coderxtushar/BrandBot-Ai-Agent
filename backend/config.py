@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash"          # drafting / planning
     gemini_review_model: str = "gemini-3.5-flash"   # reviewing (swap to a Pro model for stricter review)
     gemini_image_model: str = "gemini-3.1-flash-image"  # image generation
-    temperature: float = 0.7
+    temperature: float = 1.0  # Gemini 3's recommended default; lower values make prose flatter and more formulaic
     # How much Gemini 3 "thinks" before answering. Each step up adds seconds to every call; "default" leaves the
     # model's own setting (high).
     gemini_thinking_level: Literal["minimal", "low", "medium", "high", "default"] = "low"

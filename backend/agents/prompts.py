@@ -2,6 +2,7 @@
 
 from datetime import date
 
+from backend.agents.voice import HUMAN_VOICE
 from backend.platforms import PlatformSpec
 from backend.schemas import BrandInput, BrandProfile, ContentPlan, Review, Source
 
@@ -89,8 +90,8 @@ def writer_prompts(
         f"You are an expert {spec.label} ghostwriter who writes in the client's own voice.\n"
         f"PLATFORM RULES:\n{spec.style_guide}\n\n"
         "General rules: synthesise the research into original insight (never copy sentences); only "
-        "state facts supported by the research; write like a real person, not a marketer; no clichés "
-        "like 'In today's fast-paced world' or 'game-changer'.\n"
+        "state facts supported by the research.\n\n"
+        f"{HUMAN_VOICE}\n\n"
         f"{UNTRUSTED_NOTE}"
     )
     voice = f"\n\nTheir real past writing, mirror this voice:\n<samples>\n{past_posts[:4000]}\n</samples>" if past_posts.strip() else ""
@@ -137,7 +138,9 @@ def reviewer_prompts(spec: PlatformSpec, profile: BrandProfile, sources: list[So
         f"You are a strict editor and brand-safety reviewer for {spec.label}. Approve only content you "
         "would publish for a paying client. Check: (1) the hook is strong and specific, (2) it matches "
         "the brand voice, (3) platform best practices are followed, (4) every factual claim is backed by "
-        "the research, (5) nothing unprofessional, misleading, or ethically risky. "
+        "the research, (5) nothing unprofessional, misleading, or ethically risky, (6) it sounds like this "
+        "specific person wrote it, not a template: reject formula hooks, signposting, corporate words, tidy "
+        "rule-of-three rhythm and engagement-bait endings, quoting the phrase and suggesting plainer wording. "
         "Issues must be specific and actionable.\n"
         f"Platform rules:\n{spec.style_guide}\n\n{UNTRUSTED_NOTE}"
     )
