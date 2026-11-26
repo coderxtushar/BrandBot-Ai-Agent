@@ -1,12 +1,13 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { BarChart3, CalendarClock, CalendarDays, LogOut, PenLine, Plug } from "lucide-react";
+import { BarChart3, CalendarClock, CalendarDays, KeyRound, LogOut, PenLine, Plug } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
+import { PasswordDialog } from "@/components/studio/password-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +34,7 @@ function UserMenu() {
   const { data: me } = useMe();
   const qc = useQueryClient();
   const router = useRouter();
+  const [passwordOpen, setPasswordOpen] = useState(false);
   if (!me) return null;
   const initials = me.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
@@ -43,31 +45,37 @@ function UserMenu() {
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="rounded-full" aria-label="Account menu">
-          <span className="grid size-8 place-items-center rounded-full bg-riso-sun text-xs font-semibold text-[#1d2340]">{initials || "?"}</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-60">
-        <DropdownMenuLabel className="font-normal">
-          <p className="text-sm font-medium">{me.name}</p>
-          <p className="truncate text-xs text-muted-foreground">{me.email}</p>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {STUDIO_NAV.map((n) => (
-          <DropdownMenuItem key={n.href} asChild className="md:hidden">
-            <Link href={n.href}>
-              <n.icon className="size-4" /> {n.label}
-            </Link>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="rounded-full" aria-label="Account menu">
+            <span className="grid size-8 place-items-center rounded-full bg-riso-sun text-xs font-semibold text-[#1d2340]">{initials || "?"}</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-60">
+          <DropdownMenuLabel className="font-normal">
+            <p className="text-sm font-medium">{me.name}</p>
+            <p className="truncate text-xs text-muted-foreground">{me.email}</p>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {STUDIO_NAV.map((n) => (
+            <DropdownMenuItem key={n.href} asChild className="md:hidden">
+              <Link href={n.href}>
+                <n.icon className="size-4" /> {n.label}
+              </Link>
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator className="md:hidden" />
+          <DropdownMenuItem onSelect={() => setPasswordOpen(true)}>
+            <KeyRound className="size-4" /> Change password
           </DropdownMenuItem>
-        ))}
-        <DropdownMenuSeparator className="md:hidden" />
-        <DropdownMenuItem onSelect={signOut}>
-          <LogOut className="size-4" /> Sign out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <DropdownMenuItem onSelect={signOut}>
+            <LogOut className="size-4" /> Sign out
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <PasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
+    </>
   );
 }
 

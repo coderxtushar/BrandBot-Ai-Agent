@@ -74,6 +74,8 @@ export const api = {
   register: (body: { name: string; email: string; password: string }) => request<User>("/auth/register", { method: "POST", body }),
   login: (body: { email: string; password: string }) => request<User>("/auth/login", { method: "POST", body }),
   logout: () => request<null>("/auth/logout", { method: "POST" }),
+  changePassword: (body: { current_password: string; new_password: string }) =>
+    request<{ signed_out_sessions: number }>("/auth/password", { method: "POST", body }),
 
   connections: () => request<Connections>("/connections"),
   startConnection: (platform: string) => request<{ url: string }>(`/connections/${platform}/start`, { method: "POST" }),
