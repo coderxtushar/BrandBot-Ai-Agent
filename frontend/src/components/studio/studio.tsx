@@ -231,7 +231,7 @@ export function Studio() {
   );
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="flex flex-1 flex-col">
       <StudioHeader>
             {brandsQ.isSuccess && (
               <BrandSwitcher brands={brands} activeId={brandId} isNew={isNew} onSelect={selectBrand} onNew={() => selectBrand(NEW)} disabled={stream.running} />

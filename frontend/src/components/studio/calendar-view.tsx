@@ -199,7 +199,7 @@ export function CalendarView() {
   const dayPosts = openDay ? byDay.get(keyOf(openDay)) ?? [] : [];
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="flex flex-1 flex-col">
       <StudioHeader />
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 sm:px-6">
         <div className="flex flex-wrap items-end justify-between gap-4">

@@ -67,7 +67,7 @@ export function ConnectionsView() {
   };
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="flex flex-1 flex-col">
       <StudioHeader />
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6">
         <h1 className="font-display text-5xl sm:text-6xl">Connections</h1>

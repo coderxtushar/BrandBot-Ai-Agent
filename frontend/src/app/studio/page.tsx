@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Studio" };
 export default function StudioPage() {
   // Studio reads ?run= from the URL, so it renders in the browser inside a Suspense boundary.
   return (
-    <Suspense fallback={<div className="min-h-dvh" />}>
+    <Suspense fallback={<div className="flex-1" />}>
       <Studio />
     </Suspense>
   );

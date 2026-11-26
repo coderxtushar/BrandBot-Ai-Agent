@@ -6,7 +6,7 @@ export const metadata: Metadata = { title: "Connections" };
 
 export default function ConnectionsPage() {
   return (
-    <Suspense fallback={<div className="min-h-dvh" />}>
+    <Suspense fallback={<div className="flex-1" />}>
       <ConnectionsView />
     </Suspense>
   );

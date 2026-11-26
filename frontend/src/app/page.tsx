@@ -3,6 +3,7 @@ import { BrandMark } from "@/components/brand-mark";
 import { PressHero } from "@/components/landing/press-hero";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
+import { SiteFooter } from "@/components/site-footer";
 import { PLATFORMS } from "@/lib/platforms";
 
 const STEPS = [
@@ -122,9 +123,7 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className="mx-auto w-full max-w-6xl px-4 pb-8 text-sm text-muted-foreground sm:px-6">
-        Brand Bot runs on LangGraph, Gemini and Tavily.
-      </footer>
+      <SiteFooter note="Brand Bot runs on LangGraph, Gemini and Tavily." />
     </div>
   );
 }

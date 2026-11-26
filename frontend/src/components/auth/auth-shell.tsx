@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { motion } from "framer-motion";
 import { BrandMark } from "@/components/brand-mark";
+import { SiteFooter } from "@/components/site-footer";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 /** Split layout for sign in / sign up: the form on paper, an ink sheet beside it. */
@@ -20,6 +21,7 @@ export function AuthShell({ title, subtitle, children, footer }: { title: string
           <div className="mt-8">{children}</div>
           <p className="mt-6 text-sm text-muted-foreground">{footer}</p>
         </div>
+        <SiteFooter className="-mx-4 -mb-5 sm:-mx-10" />
       </div>
 
       {/* Always the dark press sheet, in both themes, so the inks read the same. */}
