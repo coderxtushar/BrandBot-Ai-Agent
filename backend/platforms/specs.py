@@ -54,7 +54,8 @@ class PlatformSpec:
 # ---------------------------------------------------------------------------
 
 def _render_linkedin(p: LinkedInPost) -> str:
-    return f"{p.hook}\n\n{p.body}\n\n{p.closing_question}\n\n{_tags(p.hashtags)}".strip()
+    parts = [p.hook, p.body, p.closing_question, _tags(p.hashtags)]
+    return "\n\n".join(x.strip() for x in parts if x and x.strip())
 
 
 def _lint_linkedin(p: LinkedInPost) -> list[str]:
@@ -77,10 +78,13 @@ LINKEDIN = PlatformSpec(
     image_aspect="1:1",
     image_role="a scroll-stopping feed image that sits above a LinkedIn post",
     style_guide=(
-        "LinkedIn post, 120-250 words. The hook (first 1-2 lines) must create curiosity or tension "
-        "because only ~210 characters show before '...see more'. Short paragraphs of 1-2 sentences "
-        "with blank lines between. Share a concrete insight, story or framework, not generic advice. "
-        "No emojis unless the brand voice calls for them. End with one open question."
+        "LinkedIn post, 120-250 words. Only ~210 characters show before '...see more', so the first line "
+        "or two must make people want the rest: a specific moment, number or opinion from the author's own "
+        "work, not a formula. Blank lines between paragraphs, but vary their length (some one-liners, some "
+        "3-4 sentences). Share a concrete insight or story with details only this author would know; a list "
+        "only if it really is a sequence. No emojis unless the brand voice calls for them. End where the "
+        "thought ends. closing_question is optional: leave it empty unless the author would genuinely want "
+        "the answers."
     ),
     lint=_lint_linkedin,
     render=_render_linkedin,
@@ -128,8 +132,8 @@ X = PlatformSpec(
     style_guide=(
         "An X thread of 3-7 tweets (or a single tweet if the idea is small). Tweet 1 is a bold, "
         "specific hook that works on its own. Each tweet is one idea, punchy, under 260 characters. "
-        "Plain language, no corporate tone, no hashtags inside tweets. Last tweet summarises and "
-        "invites a reply or follow. Do NOT add numbering like '1/' yourself."
+        "Plain language, no corporate tone, no hashtags inside tweets. End on the strongest point; no "
+        "summary tweet and no 'follow for more'. Do NOT add numbering like '1/' yourself."
     ),
     lint=_lint_x,
     render=_render_x,
@@ -173,8 +177,8 @@ THREADS = PlatformSpec(
     image_role="a casual, authentic-looking image for a Threads post",
     style_guide=(
         "Threads is conversational and casual, closer to talking than publishing. 1-3 short posts, "
-        "each under 450 characters. Opinionated, warm, a bit personal. Ask a genuine question to "
-        "start a conversation. At most one topic tag, no hashtag lists."
+        "each under 450 characters. Opinionated, warm, a bit personal, like talking to a friend. A "
+        "question only if it comes naturally. At most one topic tag, no hashtag lists."
     ),
     lint=_lint_threads,
     render=_render_threads,
@@ -191,7 +195,7 @@ def _instagram_caption(p: InstagramPost) -> list[str]:
 
 
 def _render_instagram(p: InstagramPost) -> str:
-    slides = "\n".join(f"Slide {i}: {s.headline} — {s.text}" for i, s in enumerate(p.slides, 1))
+    slides = "\n".join(f"Slide {i}: {s.headline} | {s.text}" for i, s in enumerate(p.slides, 1))
     return f"{p.caption}\n\n{_tags(p.hashtags)}\n\n[Carousel]\n{slides}"
 
 
@@ -219,7 +223,8 @@ INSTAGRAM = PlatformSpec(
     style_guide=(
         "An Instagram carousel post. Slides teach one idea step by step: slide 1 is a scroll-stopping "
         "promise, middle slides deliver value (one point each, very little text), last slide is a "
-        "save/share/follow CTA. Caption: hook line, 2-4 short paragraphs of context, CTA. "
+        "natural next step in the author's words (try it, save it), not 'Follow for more'. Caption: an "
+        "opening line in the author's voice, 2-4 paragraphs of context, then the same plain next step. "
         "Write an image_prompt for a clean, on-brand cover visual (no text in the image)."
     ),
     lint=_lint_instagram,
@@ -263,7 +268,8 @@ MEDIUM = PlatformSpec(
         "A Medium article of 800-1500 words in Markdown. Specific, benefit-driven title and a subtitle "
         "that adds context. Open with a short story or a surprising fact, not a definition. Use ## "
         "headings, short paragraphs, and concrete examples. Cite research inline as Markdown links "
-        "using the source URLs provided. End with a clear takeaway."
+        "using the source URLs provided. End with what the author actually thinks, not an 'In conclusion' "
+        "recap."
     ),
     lint=_lint_medium,
     render=_render_medium,
@@ -308,7 +314,7 @@ YOUTUBE_SHORTS = PlatformSpec(
         "A 30-60 second vertical video script. The hook in the first 2 seconds must stop the scroll "
         "(a bold claim, a surprising number or a question). Fast pacing: one idea per beat, 3-6 seconds "
         "each. Spoken language, 80-150 words of voiceover total. On-screen text reinforces each beat in "
-        "very few words. End with a CTA (follow, comment, or watch the next one)."
+        "very few words. End on the payoff; a short spoken CTA only if it fits the author's voice."
     ),
     lint=_lint_shorts,
     render=_render_shorts,

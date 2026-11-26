@@ -101,7 +101,9 @@ class Source(BaseModel):
 class LinkedInPost(BaseModel):
     hook: str = Field(description="First 1-2 lines, shown before '...see more'")
     body: str = Field(description="The rest of the post, short paragraphs separated by blank lines")
-    closing_question: str = Field(description="An open question to invite comments")
+    closing_question: str = Field(
+        default="", description="Optional. Leave empty unless the author would genuinely want answers to a question"
+    )
     hashtags: list[str] = Field(description="3-5 hashtags without #")
 
 

@@ -10,7 +10,7 @@ import type { Content, DraftImage, PlatformId } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /* Content shapes per platform (mirror backend/schemas.py) */
-interface LinkedInPost { hook: string; body: string; closing_question: string; hashtags: string[] }
+interface LinkedInPost { hook: string; body: string; closing_question?: string; hashtags: string[] }
 interface XThread { tweets: string[]; hashtags: string[] }
 interface ThreadsPost { posts: string[]; topic_tag: string }
 interface Slide { headline: string; text: string }
@@ -51,14 +51,14 @@ export function PrintedImage({ image, className, rounded = "rounded-xl" }: { ima
 }
 
 function LinkedIn({ item, image }: { item: LinkedInPost; image?: DraftImage }) {
-  const full = `${item.hook}\n\n${item.body}\n\n${item.closing_question}\n\n${tags(item.hashtags)}`;
+  const full = [item.hook, item.body, item.closing_question, tags(item.hashtags)].filter((x) => x?.trim()).join("\n\n");
   return (
     <div className="flex gap-3">
       <Avatar />
       <div className="min-w-0 flex-1 text-[15px] leading-relaxed whitespace-pre-wrap">
         <p className="font-semibold">{item.hook}</p>
         <p className="mt-3">{item.body}</p>
-        <p className="mt-3">{item.closing_question}</p>
+        {item.closing_question?.trim() && <p className="mt-3">{item.closing_question}</p>}
         <p className="mt-3 text-primary">{tags(item.hashtags)}</p>
         {image && <PrintedImage image={image} className="mt-4 max-w-md" />}
         <div className="mt-2 text-right"><Counter value={full.length} max={3000} /></div>
