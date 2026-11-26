@@ -18,6 +18,8 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   output: "standalone", // self-contained server for the Docker image; Vercel ignores it
+  // The footer's copyright year, fixed at build time (pages can't read the clock while prerendering).
+  env: { NEXT_PUBLIC_BUILD_YEAR: String(new Date().getFullYear()) },
   poweredByHeader: false,
   cacheComponents: true,
   partialPrefetching: true,
