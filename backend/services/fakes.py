@@ -47,7 +47,7 @@ SAMPLES = {
         closing_question="What killed your last project?",
         hashtags=["ml", "datascience", "analytics"],
     ),
-    XThread: lambda: XThread(tweets=["Most ML projects die before the model.", "Here's why.", "Frame first."], hashtags=["ml"]),
+    XThread: lambda: XThread(tweets=["Most ML projects die before the model.", "The reason is boring: nobody agreed on the problem.", "Frame first."], hashtags=["ml"]),
     ThreadsPost: lambda: ThreadsPost(posts=["Hot take: your model isn't the problem."], topic_tag="DataScience"),
     InstagramPost: lambda: InstagramPost(
         caption="Your model isn't the problem.",
