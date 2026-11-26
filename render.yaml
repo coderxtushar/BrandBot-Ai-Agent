@@ -53,3 +53,21 @@ services:
         sync: false
       - key: CRON_SECRET         # same value as the BRANDBOT_CRON_SECRET GitHub secret
         sync: false
+      # Social accounts (optional, one developer app per platform). Callback for each:
+      # https://<web app>/api/connections/<linkedin|x|threads|instagram>/callback
+      - key: LINKEDIN_CLIENT_ID
+        sync: false
+      - key: LINKEDIN_CLIENT_SECRET
+        sync: false
+      - key: X_CLIENT_ID
+        sync: false
+      - key: X_CLIENT_SECRET
+        sync: false
+      - key: THREADS_APP_ID
+        sync: false
+      - key: THREADS_APP_SECRET
+        sync: false
+      - key: INSTAGRAM_APP_ID
+        sync: false
+      - key: INSTAGRAM_APP_SECRET
+        sync: false
