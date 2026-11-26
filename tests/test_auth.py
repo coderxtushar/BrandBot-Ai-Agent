@@ -138,3 +138,51 @@ def test_media_stays_public_for_platforms_to_fetch(client):
     img = client.post(f"/drafts/{run['results'][0]['drafts'][0]['id']}/images", json={}).json()
     client.post("/auth/logout")
     assert client.get(img["url"]).status_code == 200
+
+
+# --- changing the password ------------------------------------------------------
+
+
+NEW = "a much better passphrase"
+
+
+def change(c, current=USER["password"], new=NEW):
+    return c.post("/auth/password", json={"current_password": current, "new_password": new})
+
+
+def test_change_password_signs_out_other_browsers(client):
+    from fastapi.testclient import TestClient
+
+    laptop = TestClient(client.app)  # the same account, signed in somewhere else
+    assert laptop.post("/auth/login", json={"email": USER["email"], "password": USER["password"]}).status_code == 200
+
+    res = change(client)
+    assert res.status_code == 200 and res.json() == {"signed_out_sessions": 1}
+    assert client.get("/auth/me").status_code == 200  # this browser stays signed in
+    assert laptop.get("/auth/me").status_code == 401  # the other one is out
+
+    client.post("/auth/logout")
+    assert client.post("/auth/login", json={"email": USER["email"], "password": USER["password"]}).status_code == 401
+    assert client.post("/auth/login", json={"email": USER["email"], "password": NEW}).status_code == 200
+
+
+def test_change_password_needs_the_current_one(client):
+    res = change(client, current="not my password")
+    assert res.status_code == 400 and "current password" in res.json()["detail"]
+    assert client.get("/auth/me").status_code == 200  # a typo doesn't sign you out
+    assert change(client, new="short").status_code == 422  # same rules as sign-up
+    same = change(client, new=USER["password"])
+    assert same.status_code == 400 and "different" in same.json()["detail"]
+
+
+def test_change_password_needs_sign_in(anon_client):
+    assert change(anon_client).status_code == 401
+
+
+def test_change_password_is_rate_limited(client, monkeypatch):
+    from backend.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "rate_limit_login", "2/hour")
+    for _ in range(2):
+        assert change(client, current="wrong guess").status_code == 400
+    assert change(client).status_code == 429  # even the right password waits now
