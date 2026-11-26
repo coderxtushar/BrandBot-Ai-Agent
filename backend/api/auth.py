@@ -9,7 +9,7 @@ from backend.db import accounts as acc
 from backend.db.models import User
 from backend.db.session import get_session
 from backend.ratelimit import check, ip_of
-from backend.schemas import LoginRequest, RegisterRequest, UserOut
+from backend.schemas import ChangePasswordRequest, LoginRequest, PasswordChanged, RegisterRequest, UserOut
 from backend.security import hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["accounts"])
@@ -63,3 +63,19 @@ async def logout(request: Request, s: AsyncSession = Depends(get_session)):
 @router.get("/me", response_model=UserOut)
 async def me(user: User = Depends(current_user)):
     return acc.user_out(user)
+
+
+@router.post("/password", response_model=PasswordChanged)
+async def change_password(
+    data: ChangePasswordRequest, request: Request, user: User = Depends(current_user), s: AsyncSession = Depends(get_session)
+):
+    """Change the password. Needs the current one, so a borrowed signed-in browser can't lock the owner out;
+    limited like sign-in so it can't be used to guess it. Other sessions are signed out, this one stays."""
+    await check(s, "password", user.id, "rate_limit_login", what="password attempts")
+    if not verify_password(user.password_hash, data.current_password):
+        # 400, not 401: the session is fine, and 401 would sign the browser out.
+        raise HTTPException(status_code=400, detail="Your current password isn't right.")
+    if data.new_password == data.current_password:
+        raise HTTPException(status_code=400, detail="Choose a new password that's different from the current one.")
+    signed_out = await acc.change_password(s, user, hash_password(data.new_password), request.cookies.get(SESSION_COOKIE))
+    return PasswordChanged(signed_out_sessions=signed_out)

@@ -424,6 +424,15 @@ class LoginRequest(BaseModel):
     password: str = Field(max_length=200)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(max_length=200)
+    new_password: str = Field(min_length=10, max_length=200, description="At least 10 characters")
+
+
+class PasswordChanged(BaseModel):
+    signed_out_sessions: int = Field(description="Other browsers signed out by the change")
+
+
 class UserOut(BaseModel):
     id: str
     name: str

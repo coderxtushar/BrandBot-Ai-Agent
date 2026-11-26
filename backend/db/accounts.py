@@ -61,6 +61,17 @@ async def user_for_session(s: AsyncSession, token: str) -> User | None:
     return await s.get(User, session.user_id)
 
 
+async def change_password(s: AsyncSession, user: User, password_hash: str, keep_token: str | None) -> int:
+    """Store the new hash and sign out every other session (a stolen cookie stops working). Returns how many."""
+    user.password_hash = password_hash
+    others = delete(Session).where(Session.user_id == user.id)
+    if keep_token:
+        others = others.where(Session.token_hash != hash_token(keep_token))
+    result = await s.execute(others)
+    await s.commit()
+    return result.rowcount or 0
+
+
 async def delete_session(s: AsyncSession, token: str) -> None:
     await s.execute(delete(Session).where(Session.token_hash == hash_token(token)))
     await s.commit()
