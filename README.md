@@ -373,6 +373,7 @@ session. Over a rate limit the API answers `429` with a `Retry-After` header. Ev
 | GET | `/ready` | Readiness: the database answers (503 if not) |
 | POST | `/auth/register`, `/auth/login`, `/auth/logout` | Accounts (session cookie) |
 | GET | `/auth/me` | The signed-in user |
+| POST | `/auth/password` | Change the password (`current_password`, `new_password`); signs out your other sessions |
 | GET | `/platforms` | Supported platforms |
 | POST | `/brands` | Create a brand (name and input) |
 | GET | `/brands` | List brands |
