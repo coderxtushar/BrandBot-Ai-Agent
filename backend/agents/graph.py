@@ -28,6 +28,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send, interrupt
 
 from backend.agents import prompts
+from backend.agents.voice import ai_tells
 from backend.platforms import get_spec
 from backend.schemas import (
     BrandInput,
@@ -154,7 +155,7 @@ def build_platform_graph(llm: LLMClient, max_revisions: int):
         lint = [
             f"Draft {i}: {issue}" if len(items) > 1 else issue
             for i, item in enumerate(items, 1)
-            for issue in spec.lint(item)
+            for issue in [*spec.lint(item), *ai_tells(spec.render(item))]
         ]
         can_retry = state["attempts"] <= max_revisions
         if lint and can_retry:
